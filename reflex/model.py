@@ -77,8 +77,23 @@ class Model(Base, sqlmodel.SQLModel):
         Returns:
             The object as a dictionary.
         """
-        return {name: getattr(self, name) for name in self.__fields__}
-
+        base_fields = {name: getattr(self, name) for name in self.__fields__}
+        relationships = {}
+        for name in self.__sqlmodel_relationships__:
+            try:
+                relationship_value =  getattr(self, name)
+            except sqlalchemy.orm.exc.DetachedInstanceError:
+                continue
+            if hasattr(relationship_value, "dict"):
+                relationship_value = relationship_value.dict()
+            elif isinstance(relationship_value, list):
+                relationship_value = [item.dict() for item in relationship_value]
+            relationships[name] = relationship_value
+        return {
+            **base_fields,
+            **relationships,
+        }
+            
     @staticmethod
     def create_all():
         """Create all the tables."""

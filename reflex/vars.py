@@ -417,6 +417,8 @@ class Var:
                 raise TypeError(
                     f"You must provide an annotation for the state var `{self._var_full_name}`. Annotation cannot be `{self._var_type}`"
                 ) from None
+            type_ = Any
+            can_access_attribute = False
             if (
                 hasattr(self._var_type, "__fields__")
                 and name in self._var_type.__fields__
@@ -424,8 +426,21 @@ class Var:
                 type_ = self._var_type.__fields__[name].outer_type_
                 if isinstance(type_, ModelField):
                     type_ = type_.type_
+                can_access_attribute = True
+            else:
+                # check in the annotations directly
+                hints = get_type_hints(self._var_type)
+                if name in hints:
+                    type_ = hints[name]
+                    if isinstance(type_, ModelField):
+                        type_ = type_.type_
+                    elif isinstance(type_, _GenericAlias):
+                        type_ = type_.__args__[0]
+                    can_access_attribute = True
+
+            if can_access_attribute:
                 return BaseVar(
-                    _var_name=f"{self._var_name}.{name}",
+                    _var_name=f"{self._var_name}?.{name}",
                     _var_type=type_,
                     _var_state=self._var_state,
                     _var_is_local=self._var_is_local,
