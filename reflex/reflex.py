@@ -803,6 +803,24 @@ def get_deployment_regions(
         console.print(tabulate(table, headers=headers))
 
 
+@deployments_cli.command(name="export-config")
+def get_deployment_config(
+    key: str = typer.Argument(..., help="The name of the deployment."),
+    loglevel: constants.LogLevel = typer.Option(
+        config.loglevel, help="The log level to use."
+    ),
+):
+    """Get the configuration for a deployment."""
+    console.set_log_level(loglevel)
+
+    try:
+        config = hosting.get_deployment_config(key)
+        console.print(config)
+    except Exception as ex:
+        console.error(f"Unable to get deployment config due to: {ex}")
+        raise typer.Exit(1) from ex
+
+
 cli.add_typer(db_cli, name="db", help="Subcommands for managing the database schema.")
 cli.add_typer(
     deployments_cli,

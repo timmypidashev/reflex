@@ -15,6 +15,7 @@ from typing import List, Optional
 
 import httpx
 import websockets
+import yaml
 from pydantic import Field, ValidationError, root_validator
 
 from reflex import constants
@@ -41,6 +42,8 @@ GET_DEPLOYMENT_STATUS_ENDPOINT = f"{config.cp_backend_url}/deployments"
 GET_REGIONS_ENDPOINT = f"{config.cp_backend_url}/deployments/regions"
 # Websocket endpoint to stream logs of a deployment
 DEPLOYMENT_LOGS_ENDPOINT = f'{config.cp_backend_url.replace("http", "ws")}/deployments'
+# Endpoint to fetch the config/settings of a deployment
+GET_DEPLOYMENT_CONFIG_ENDPOINT = f"{config.cp_backend_url}/deployments"
 # Expected server response time to new deployment request. In seconds.
 DEPLOYMENT_PICKUP_DELAY = 30
 # End of deployment workflow message. Used to determine if it is the last message from server.
@@ -1153,3 +1156,36 @@ def get_regions() -> list[dict]:
     except Exception as ex:
         console.debug(f"Unable to get regions due to {ex}.")
         return []
+
+
+def get_deployment_config(key: str) -> str:
+    """Export the configs for the deployment."""
+    if not key:
+        console.error("Please provide a non empty deployment key.")
+        raise Exception("non empty key is required to get deployment config")
+    if not (token := requires_authenticated()):
+        raise Exception("not authenticated")
+    try:
+        response = httpx.get(
+            f"{GET_DEPLOYMENT_CONFIG_ENDPOINT}/{key}/configs",
+            headers=authorization_header(token),
+            timeout=HTTP_REQUEST_TIMEOUT,
+        )
+        response.raise_for_status()
+        response_json = response.json()
+        return yaml.dump(response_json)
+
+    except httpx.RequestError as re:
+        console.debug(f"Unable to get deployment configs due to request error: {re}")
+        raise Exception("request error") from re
+    except httpx.HTTPError as he:
+        console.debug(f"Unable to get deployment configs due to {he}.")
+        raise Exception("http status errors") from he
+    except yaml.YAMLError as ye:
+        console.debug(f"Unable to convert the server response to yaml {ye}")
+        if "response" in locals() and (response := locals()["response"]) is not None:
+            console.debug(f"Server response: {response}")
+        raise Exception("yaml conversion errors") from ye
+    except Exception as ex:
+        console.debug(f"Unable to get deployment configs due to {ex}.")
+        raise Exception("unexpected errors") from ex
