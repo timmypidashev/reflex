@@ -2,6 +2,7 @@
 
 import asyncio
 import atexit
+import cProfile
 import json
 import os
 import shutil
@@ -522,6 +523,7 @@ def deploy(
     """Deploy the app to the Reflex hosting service."""
     # Set the log level.
     console.set_log_level(loglevel)
+    profiler = cProfile.Profile()
 
     if not interactive and not key:
         console.error(
@@ -540,6 +542,11 @@ def deploy(
             f"Deployment key {key} is not valid. Please use only domain name safe characters."
         )
         raise typer.Exit(1)
+    elif key is not None and any(x.isupper() for x in key):
+        key = key.lower()
+        console.info(
+            f"Domain name is case insensitive, automatically converting to all lower cases: {key}"
+        )
     try:
         # Send a request to server to obtain necessary information
         # in preparation of a deployment. For example,
@@ -640,7 +647,9 @@ def deploy(
     backend_file_name = constants.ComponentName.BACKEND.zip()
 
     console.print("Uploading code and sending request ...")
+    profiler.enable()
     deploy_requested_at = datetime.now().astimezone()
+
     try:
         deploy_response = hosting.deploy(
             frontend_file_name=frontend_file_name,
@@ -672,7 +681,8 @@ def deploy(
     console.print(
         "[bold]Deployment will start shortly. Closing this command now will not affect your deployment."
     )
-
+    profiler.disable()
+    profiler.dump_stats("deploy.prof")
     # It takes a few seconds for the deployment request to be picked up by server
     hosting.wait_for_server_to_pick_up_request()
 
