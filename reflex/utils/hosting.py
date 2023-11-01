@@ -179,13 +179,13 @@ def authorization_header(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
 
-def requires_authenticated() -> str:
+def requires_access_token() -> str:
     """Check if the user is authenticated.
 
     Returns:
         The validated access token or empty string if not authenticated.
     """
-    access_token, invitation_code = authenticated_token()
+    access_token, invitation_code = get_existing_access_token()
     if access_token:
         return access_token
     return authenticate_on_browser(invitation_code)
@@ -281,7 +281,7 @@ def prepare_deploy(
         The response containing the backend URLs if successful, None otherwise.
     """
     # Check if the user is authenticated
-    if not (token := requires_authenticated()):
+    if not (token := requires_access_token()):
         raise Exception("not authenticated")
     try:
         response = httpx.post(
@@ -414,7 +414,7 @@ def deploy(
         The response containing the URL of the site to be deployed if successful, None otherwise.
     """
     # Check if the user is authenticated
-    if not (token := requires_authenticated()):
+    if not (token := requires_access_token()):
         raise Exception("not authenticated")
 
     try:
@@ -504,7 +504,7 @@ def list_deployments(
     Returns:
         The list of deployments if successful, None otherwise.
     """
-    if not (token := requires_authenticated()):
+    if not (token := requires_access_token()):
         raise Exception("not authenticated")
 
     params = DeploymentsGetParam(app_name=app_name)
@@ -617,7 +617,7 @@ def delete_deployment(key: str):
         ValueError: If the key is not provided.
         Exception: If the operation fails. The exception message is the reason.
     """
-    if not (token := requires_authenticated()):
+    if not (token := requires_access_token()):
         raise Exception("not authenticated")
     if not key:
         raise ValueError("Valid key is required for the delete.")
@@ -698,7 +698,7 @@ def get_deployment_status(key: str) -> DeploymentStatusResponse:
             "A non empty key is required for querying the deployment status."
         )
 
-    if not (token := requires_authenticated()):
+    if not (token := requires_access_token()):
         raise Exception("not authenticated")
 
     try:
@@ -776,7 +776,7 @@ async def get_logs(
         Exception: If the operation fails. The exception message is the reason.
 
     """
-    if not (token := requires_authenticated()):
+    if not (token := requires_access_token()):
         raise Exception("not authenticated")
     if not key:
         raise ValueError("Valid key is required for querying logs.")
@@ -1046,7 +1046,7 @@ async def display_deploy_milestones(key: str, from_iso_timestamp: datetime) -> b
     """
     if not key:
         raise ValueError("Non-empty key is required for querying deploy status.")
-    if not (token := requires_authenticated()):
+    if not (token := requires_access_token()):
         raise Exception("not authenticated")
 
     try:
