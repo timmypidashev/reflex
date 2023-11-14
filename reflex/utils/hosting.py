@@ -14,7 +14,7 @@ from http import HTTPStatus
 from typing import List, Optional
 
 import httpx
-import websockets
+import socketio
 from pydantic import Field, ValidationError, root_validator
 
 from reflex import constants
@@ -817,10 +817,14 @@ async def get_logs(
             logs_endpoint += (
                 f"&from_iso_timestamp={from_iso_timestamp.astimezone().isoformat()}"
             )
-        _ws = websockets.connect(logs_endpoint)  # type: ignore
-        async with _ws as ws:
-            while True:
-                row_json = json.loads(await ws.recv())
+        with socketio.SimpleClient() as sio:
+            sio.connect(logs_endpoint)
+            while sio.connected:
+                data = sio.receive()
+                print(data)
+                if data is None:
+                    break
+                row_json = json.loads(data)
                 console.debug(f"Server responded with logs: {row_json}")
                 if row_json and isinstance(row_json, dict):
                     row_to_print = {}
@@ -1154,35 +1158,37 @@ async def display_deploy_milestones(key: str, from_iso_timestamp: datetime) -> b
     try:
         logs_endpoint = f"{DEPLOYMENT_LOGS_ENDPOINT}/{key}/logs?access_token={token}&log_type={LogType.DEPLOY_LOG.value}&from_iso_timestamp={from_iso_timestamp.astimezone().isoformat()}"
         console.debug(f"log server endpoint: {logs_endpoint}")
-        _ws = websockets.connect(logs_endpoint)  # type: ignore
-        async with _ws as ws:
-            # Stream back the deploy events reported back from the server
-            for _ in range(DEPLOYMENT_EVENT_MESSAGES_RETRIES):
-                row_json = json.loads(await ws.recv())
-                console.debug(f"Server responded with: {row_json}")
-                if row_json and isinstance(row_json, dict):
-                    # Only show the timestamp and actual message
-                    console.print(
-                        " | ".join(
-                            [
-                                convert_to_local_time_str(row_json["timestamp"]),
-                                row_json["message"],
-                            ]
-                        )
+        sio = socketio.AsyncClient()
+        await sio.connect(logs_endpoint)
+
+        @sio.on("message")
+        async def print_log(data):
+            row_json = json.loads(data)
+            console.debug(f"Server responded with: {row_json}")
+            if row_json and isinstance(row_json, dict):
+                # Only show the timestamp and actual message
+                console.print(
+                    " | ".join(
+                        [
+                            convert_to_local_time_str(row_json["timestamp"]),
+                            row_json["message"],
+                        ]
                     )
-                    server_message = row_json["message"].lower()
-                    if "fail" in server_message:
-                        console.debug(
-                            "Received failure message, stop event message streaming"
-                        )
-                        return False
-                    if any(msg in server_message for msg in END_OF_DEPLOYMENT_MESSAGES):
-                        console.debug(
-                            "Received end of deployment message, stop event message streaming"
-                        )
-                        return True
-                else:
-                    console.debug("Server responded, no new events yet, this is normal")
+                )
+                server_message = row_json["message"].lower()
+                if "fail" in server_message:
+                    console.debug(
+                        "Received failure message, stop event message streaming"
+                    )
+                    return False
+                if any(msg in server_message for msg in END_OF_DEPLOYMENT_MESSAGES):
+                    console.debug(
+                        "Received end of deployment message, stop event message streaming"
+                    )
+                    return True
+            else:
+                console.debug("Server responded, no new events yet, this is normal")
+
     except Exception as ex:
         console.debug(f"Unable to get more deployment events due to {ex}.")
     return False
