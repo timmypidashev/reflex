@@ -483,7 +483,7 @@ def deploy(
     # Set the log level.
     console.set_log_level(loglevel)
 
-    dependency.check_requirements()
+    dependency.check_requirements(app_name=app_name)
 
     # Check if we are set up.
     prerequisites.check_initialized(frontend=True)
