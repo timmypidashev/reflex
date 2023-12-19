@@ -32,6 +32,9 @@ class {{ component_class_name }}(rx.Component):
     # alias = "Other{{ component_class_name }}"
 
     # The props of the React component.
+    # Note: when Reflex compiles the component to Javascript,
+    # `snake_case` property names are automatically formatted as `camelCase`.
+    # The prop names may be defined in `camelCase` as well.
     # some_prop: Var[str] = "some default value"
     # some_other_prop: Var[int] = 1
 

@@ -2,6 +2,9 @@
 from __future__ import annotations
 
 import os
+import subprocess
+import sys
+from contextlib import contextmanager
 from typing import Optional
 
 import typer
@@ -13,6 +16,24 @@ from reflex.utils import console
 
 config = get_config()
 custom_components_cli = typer.Typer()
+
+
+@contextmanager
+def set_directory(working_directory: str):
+    """Context manager that sets the working directory.
+
+    Args:
+        working_directory: The working directory to change to.
+
+    Yields:
+        Yield to the caller to perform operations in the working directory.
+    """
+    current_directory = os.getcwd()
+    try:
+        os.chdir(working_directory)
+        yield
+    finally:
+        os.chdir(current_directory)
 
 
 def _create_package_config(module_name: str, package_name: str):
@@ -72,11 +93,44 @@ def _write_source_py(
         )
 
 
+def _populate_demo_app(
+    demo_app_dir: str, app_name: str, custom_component_src_dir: str, module_name: str
+):
+    """Populate the demo app that imports the custom components.
+
+    Args:
+        demo_app_dir: The name of the demo app directory.
+        app_name: The name of the demo app.
+        custom_component_src_dir: The name of the custom component source directory.
+        module_name: The name of the module.
+    """
+    from reflex import constants
+    from reflex.compiler import templates
+    from reflex.reflex import _init
+
+    with set_directory(demo_app_dir):
+        # We do not want a template in this demo
+        # TODO: might be nice to add imports to the demo app
+        _init(name=app_name, template=constants.Templates.Kind.BLANK)
+        # TODO: below is a hack to overwrite the app source file with the one we want for testing custom components
+        with open(f"{app_name}/{app_name}.py", "w") as f:
+            f.write(
+                templates.CUSTOM_COMPONENTS_DEMO_APP.render(
+                    custom_component_src_dir=custom_component_src_dir,
+                    module_name=module_name,
+                )
+            )
+
+
 @custom_components_cli.command(name="init")
 def _init(
     library_name: Optional[str] = typer.Option(
         None,
         help="The name of your library. On PyPI, package will be published as `reflex-{library-name}`.",
+    ),
+    install: bool = typer.Option(
+        True,
+        help="Whether to install package from this local custom component in editable mode.",
     ),
     loglevel: constants.LogLevel = typer.Option(
         config.loglevel, help="The log level to use."
@@ -103,7 +157,7 @@ def _init(
             "TODO: use the current directory name to form the module name"
         )
 
-    name_parts = library_name.split("-")
+    name_parts = [part.lower() for part in library_name.split("-")]
 
     component_class_name = "".join([part.capitalize() for part in name_parts])
     console.info(f"Component class name: {component_class_name}")
@@ -112,7 +166,8 @@ def _init(
     module_name = "_".join(name_parts)
     custom_component_src_dir = f"rx_{module_name}"
     console.info(f"Custom component source directory: {custom_component_src_dir}")
-    demo_app_dir = f"{custom_component_src_dir}_demo"
+    # Use the same name for the directory and the app
+    demo_app_dir = demo_app_name = f"{custom_component_src_dir}_demo"
     console.info(f"Demo app directory: {demo_app_dir}")
 
     console.info(f"Populating pyproject.toml with package name: {package_name}")
@@ -121,21 +176,48 @@ def _init(
     _create_readme(module_name=library_name)
 
     console.info(
-        f"Initializing the component source directory: custom_components/{custom_component_src_dir}"
+        f"Initializing the component source directory: {CustomComponents.SRC_DIR}/{custom_component_src_dir}"
     )
-    os.makedirs(custom_component_src_dir)
-    _write_source_py(
+    os.makedirs(CustomComponents.SRC_DIR)
+    with set_directory(CustomComponents.SRC_DIR):
+        os.makedirs(custom_component_src_dir)
+        _write_source_py(
+            custom_component_src_dir=custom_component_src_dir,
+            component_class_name=component_class_name,
+            module_name=module_name,
+        )
+
+    console.info(f"Creating app for testing: {demo_app_dir}")
+    os.makedirs(demo_app_dir)
+    _populate_demo_app(
+        demo_app_dir=demo_app_dir,
+        app_name=demo_app_name,
         custom_component_src_dir=custom_component_src_dir,
-        component_class_name=component_class_name,
         module_name=module_name,
     )
 
-    console.info(f"Creating app for testing: {demo_app_dir}")
-
-    # TODO: maybe subprocess to run reflex init in the new folder?
-
     # Initialize the .gitignore.
     prerequisites.initialize_gitignore()
+
+    if install:
+        console.info(f"Installing {package_name} in editable mode.")
+
+        cmds = [
+            sys.executable,
+            "-m",
+            "pip",
+            "install",
+            "-e",
+            ".",
+        ]
+        console.info(f"Install package in editable mode: {' '.join(cmds)}")
+        try:
+            result = subprocess.run(cmds, capture_output=True, text=True, check=True)
+            console.debug(result.stdout)
+            console.info(f"Package {package_name} installed!")
+        except subprocess.CalledProcessError as cpe:
+            console.error(cpe.stderr)
+            raise typer.Exit(code=cpe.returncode) from cpe
 
 
 @custom_components_cli.command(name="build")
@@ -148,23 +230,20 @@ def _build(
 
     Args:
         loglevel: The log level to use.
+
+    Raises:
+        Exit: If the build fails.
     """
     console.set_log_level(loglevel)
     console.print("Building custom component...")
-
-
-@custom_components_cli.command(name="publish")
-def _publish(
-    loglevel: constants.LogLevel = typer.Option(
-        config.loglevel, help="The log level to use."
-    ),
-):
-    """Publish a custom component.
-
-    Args:
-        loglevel: The log level to use.
-    """
-    console.set_log_level(loglevel)
+    cmds = [sys.executable, "-m", "build", "."]
+    try:
+        result = subprocess.run(cmds, capture_output=True, text=True, check=True)
+        console.debug(result.stdout)
+        console.info("Custom component built successfully!")
+    except subprocess.CalledProcessError as cpe:
+        console.error(cpe.stderr)
+        raise typer.Exit(code=cpe.returncode) from cpe
 
 
 @custom_components_cli.command(name="test")
@@ -179,6 +258,72 @@ def _test(
         loglevel: The log level to use.
     """
     console.set_log_level(loglevel)
-    console.print(
-        "Testing custom component by running the reflex app in dev mode. or do we even need this command?"
-    )
+    console.print("Testing custom component...")
+    # TODO: figure out a way to get the demo app folder properly
+    # maybe we need more fields in the config?
+    # with set_directory(the_right_folder):
+    #     reflex.run()
+
+
+@custom_components_cli.command(name="publish")
+def _publish(
+    repository: Optional[str] = typer.Option(
+        None,
+        "-r",
+        "--repository",
+        help="The name of the repository. Defaults to pypi. Only supports testpypi (Test PyPI) for now.",
+    ),
+    token: Optional[str] = typer.Option(
+        None,
+        "-t",
+        "--token",
+        help="The API token to use for authentication on python package repository. If token is provided, no username/password should be provided at the same time",
+    ),
+    username: Optional[str] = typer.Option(
+        None,
+        "-u",
+        "--username",
+        help="The username to use for authentication on python package repository. Username and password must both be provided.",
+    ),
+    password: Optional[str] = typer.Option(
+        None,
+        "-p",
+        "--password",
+        help="The password to use for authentication on python package repository. Username and password must both be provided.",
+    ),
+    loglevel: constants.LogLevel = typer.Option(
+        config.loglevel, help="The log level to use."
+    ),
+):
+    """Publish a custom component.
+
+    Args:
+        repository: The URL of the Python package repository, such pypi, testpypi.
+        token: The token to use for authentication on python package repository. If token is provided, no username/password should be provided at the same time.
+        username: The username to use for authentication on python package repository.
+        password: The password to use for authentication on python package repository.
+        loglevel: The log level to use.
+
+    Raises:
+        Exit: If arguments provided are not correct or the publish fails.
+    """
+    console.set_log_level(loglevel)
+    if repository is None:
+        repository = "pypi"
+    elif repository not in ["pypi", "testpypi"]:
+        console.error(f"Unsupported repository: {repository}")
+        raise typer.Exit(code=1)
+
+    console.print(f"Publishing custom component to {repository}...")
+    if token is not None and (username is not None or password is not None):
+        console.error("Cannot use token and username/password at the same time.")
+        raise typer.Exit(code=1)
+    elif token is None and (username is None or password is None):
+        console.error(
+            "Must provide both username and password for authentication if not using a token."
+        )
+        raise typer.Exit(code=1)
+
+    if token is not None:
+        username = "__token__"
+        password = token
