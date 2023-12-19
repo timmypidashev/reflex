@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import sys
 from contextlib import contextmanager
@@ -122,8 +123,29 @@ def _populate_demo_app(
             )
 
 
+def _get_default_library_name_parts() -> list[str]:
+    """Get the default library name. Based on the current directory name, remove any non-alphanumeric characters.
+
+    Raises:
+        ValueError: If the current directory name is suitable for python, and we cannot find a valid library name based off it.
+
+    Returns:
+        The parts of default library name.
+    """
+    current_dir_name = os.getcwd().split(os.path.sep)[-1]
+
+    cleaned_dir_name = re.sub("[^0-9a-zA-Z-_]+", "", current_dir_name)
+    parts = re.split("-|_", cleaned_dir_name)
+    if not parts:
+        # Likely a folder not suitable for python files in general either
+        raise ValueError(
+            f"Could not find a valid library name based on the current directory: got {current_dir_name}."
+        )
+    return parts
+
+
 @custom_components_cli.command(name="init")
-def _init(
+def init(
     library_name: Optional[str] = typer.Option(
         None,
         help="The name of your library. On PyPI, package will be published as `reflex-{library-name}`.",
@@ -136,9 +158,18 @@ def _init(
         config.loglevel, help="The log level to use."
     ),
 ):
+    """Initialize a custom component.
+
+    Args:
+        library_name: The name of the library.
+        install: Whether to install package from this local custom component in editable mode.
+        loglevel: The log level to use.
+
+    Raises:
+        Exit: If the pyproject.toml already exists.
+    """
     from reflex.utils import exec, prerequisites
 
-    """Initialize a custom component."""
     console.set_log_level(loglevel)
 
     # TODO: define pyproject.toml as constants
@@ -150,14 +181,22 @@ def _init(
     exec.output_system_info()
 
     # TODO: check the picked name follows the convention
+    if library_name is not None and not re.match(
+        r"^[a-zA-Z-]+[a-zA-Z0-9-]*$", library_name
+    ):
+        console.error(
+            f"Please use only alphanumeric characters or dashes: got {library_name}"
+        )
+        raise typer.Exit(code=1)
 
     # if not specified, use the current directory name to form the module name
-    if library_name is None:
-        raise NotImplementedError(
-            "TODO: use the current directory name to form the module name"
-        )
-
-    name_parts = [part.lower() for part in library_name.split("-")]
+    name_parts = (
+        [part.lower() for part in library_name.split("-")]
+        if library_name
+        else _get_default_library_name_parts()
+    )
+    if not library_name:
+        library_name = "-".join(name_parts)
 
     component_class_name = "".join([part.capitalize() for part in name_parts])
     console.info(f"Component class name: {component_class_name}")
@@ -167,7 +206,7 @@ def _init(
     custom_component_src_dir = f"rx_{module_name}"
     console.info(f"Custom component source directory: {custom_component_src_dir}")
     # Use the same name for the directory and the app
-    demo_app_dir = demo_app_name = f"{custom_component_src_dir}_demo"
+    demo_app_dir = demo_app_name = f"{module_name}_demo"
     console.info(f"Demo app directory: {demo_app_dir}")
 
     console.info(f"Populating pyproject.toml with package name: {package_name}")
@@ -220,8 +259,27 @@ def _init(
             raise typer.Exit(code=cpe.returncode) from cpe
 
 
+def _pip_install_on_demand(package_name: str) -> bool:
+    install_cmds = [
+        sys.executable,
+        "-m",
+        "pip",
+        "install",
+        package_name,
+    ]
+    try:
+        result = subprocess.run(
+            install_cmds, capture_output=True, text=True, check=True
+        )
+        console.debug(result.stdout)
+        return True
+    except subprocess.CalledProcessError as cpe:
+        console.error(cpe.stderr)
+        return False
+
+
 @custom_components_cli.command(name="build")
-def _build(
+def build(
     loglevel: constants.LogLevel = typer.Option(
         config.loglevel, help="The log level to use."
     ),
@@ -236,6 +294,12 @@ def _build(
     """
     console.set_log_level(loglevel)
     console.print("Building custom component...")
+    try:
+        pass  # type: ignore
+    except (ImportError, ModuleNotFoundError) as ex:
+        if not _pip_install_on_demand("build"):
+            raise typer.Exit(code=1) from ex
+
     cmds = [sys.executable, "-m", "build", "."]
     try:
         result = subprocess.run(cmds, capture_output=True, text=True, check=True)
@@ -247,7 +311,7 @@ def _build(
 
 
 @custom_components_cli.command(name="test")
-def _test(
+def test(
     loglevel: constants.LogLevel = typer.Option(
         config.loglevel, help="The log level to use."
     ),
@@ -258,7 +322,7 @@ def _test(
         loglevel: The log level to use.
     """
     console.set_log_level(loglevel)
-    console.print("Testing custom component...")
+    console.print("Testing custom component... Not yet implemented")
     # TODO: figure out a way to get the demo app folder properly
     # maybe we need more fields in the config?
     # with set_directory(the_right_folder):
@@ -266,12 +330,12 @@ def _test(
 
 
 @custom_components_cli.command(name="publish")
-def _publish(
+def publish(
     repository: Optional[str] = typer.Option(
         None,
         "-r",
         "--repository",
-        help="The name of the repository. Defaults to pypi. Only supports testpypi (Test PyPI) for now.",
+        help="The name of the repository. Defaults to pypi. Only supports pypi and testpypi (Test PyPI) for now.",
     ),
     token: Optional[str] = typer.Option(
         None,
@@ -298,7 +362,7 @@ def _publish(
     """Publish a custom component.
 
     Args:
-        repository: The URL of the Python package repository, such pypi, testpypi.
+        repository: The name of the Python package repository, such pypi, testpypi.
         token: The token to use for authentication on python package repository. If token is provided, no username/password should be provided at the same time.
         username: The username to use for authentication on python package repository.
         password: The password to use for authentication on python package repository.
@@ -310,8 +374,10 @@ def _publish(
     console.set_log_level(loglevel)
     if repository is None:
         repository = "pypi"
-    elif repository not in ["pypi", "testpypi"]:
-        console.error(f"Unsupported repository: {repository}")
+    elif repository not in CustomComponents.REPO_URLS:
+        console.error(
+            f"Unsupported repository name. Allow {CustomComponents.REPO_URLS.keys()}, got {repository}"
+        )
         raise typer.Exit(code=1)
 
     console.print(f"Publishing custom component to {repository}...")
@@ -327,3 +393,38 @@ def _publish(
     if token is not None:
         username = "__token__"
         password = token
+
+    if not os.path.exists(CustomComponents.DIST_DIR):
+        console.error(
+            f"{CustomComponents.DIST_DIR} does not exist. Please build it first: `reflex custom-components build`"
+        )
+        raise typer.Exit(code=1)
+
+    # We install twine with pip on the fly so it is not a stable dependency of reflex
+    try:
+        pass  # type: ignore
+    except (ImportError, ModuleNotFoundError) as ex:
+        if not _pip_install_on_demand("twine"):
+            raise typer.Exit(code=1) from ex
+    publish_cmds = [
+        sys.executable,
+        "-m",
+        "twine",
+        "upload",
+        "--repository-url",
+        CustomComponents.REPO_URLS[repository],
+        "--username",
+        username,
+        "--password",
+        password,
+        "--non-interactive",
+    ]
+    try:
+        result = subprocess.run(
+            publish_cmds, capture_output=True, text=True, check=True
+        )
+        console.debug(result.stdout)
+        console.info("Custom component published successfully!")
+    except subprocess.CalledProcessError as cpe:
+        console.error(cpe.stderr)
+        raise typer.Exit(code=cpe.returncode) from cpe

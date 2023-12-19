@@ -15,3 +15,10 @@ class CustomComponents(SimpleNamespace):
     PACKAGE_README = "README.md"
     # The name of the custom components package .gitignore file.
     PACKAGE_GITIGNORE = ".gitignore"
+    # The name of the distribution directory as result of a build.
+    DIST_DIR = "dist"
+    # The name to the URL of python package repositories.
+    REPO_URLS: dict[str, str] = {
+        "pypi": "https://pypi.org/simple",
+        "testpypi": "https://test.pypi.org/simple",
+    }

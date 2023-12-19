@@ -62,7 +62,6 @@ charset-normalizer = "^3.3.2"
 setuptools = "^69.0.2"
 wheel = "^0.42.0"
 build = "^1.0.3"
-twine = "^4.0.2"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^7.1.2"
