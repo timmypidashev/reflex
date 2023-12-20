@@ -301,7 +301,9 @@ def build(
             raise typer.Exit(code=1) from ex
 
     cmds = [sys.executable, "-m", "build", "."]
+    console.debug(f"Running command: {' '.join(cmds)}")
     try:
+        # TODO: below subprocess is not printing errors/debug
         result = subprocess.run(cmds, capture_output=True, text=True, check=True)
         console.debug(result.stdout)
         console.info("Custom component built successfully!")
@@ -400,6 +402,9 @@ def publish(
         )
         raise typer.Exit(code=1)
 
+    # TODO: dist needs to be a directory with certain file types expected
+    # combine this with above into a helper _ensure_dist_dir().
+
     # We install twine with pip on the fly so it is not a stable dependency of reflex
     try:
         pass  # type: ignore
@@ -418,8 +423,11 @@ def publish(
         "--password",
         password,
         "--non-interactive",
+        f"{CustomComponents.DIST_DIR}/*",
     ]
+    console.debug(f"Running command: {' '.join(publish_cmds)}")
     try:
+        # TODO: below subprocess is not printing errors/debug
         result = subprocess.run(
             publish_cmds, capture_output=True, text=True, check=True
         )

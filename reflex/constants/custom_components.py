@@ -19,6 +19,7 @@ class CustomComponents(SimpleNamespace):
     DIST_DIR = "dist"
     # The name to the URL of python package repositories.
     REPO_URLS: dict[str, str] = {
-        "pypi": "https://pypi.org/simple",
-        "testpypi": "https://test.pypi.org/simple",
+        # Note: the trailing slash is required for below URLs.
+        "pypi": "https://pypi.org/legacy/",
+        "testpypi": "https://test.pypi.org/legacy/",
     }
