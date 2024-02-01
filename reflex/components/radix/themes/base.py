@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any, Literal
 
 from reflex.components import Component
+from reflex.components.base.fragment import Fragment
 from reflex.components.tags import Tag
 from reflex.utils import imports
 from reflex.vars import Var
@@ -202,6 +203,23 @@ class ThemePanel(RadixThemesComponent):
     tag = "ThemePanel"
 
     default_open: Var[bool]
+
+    @classmethod
+    def create(
+        cls, *children, color: Var = None, color_scheme: Var = None, **props
+    ) -> Component:
+        return Fragment.create(
+            super().create(*children, color=color, color_scheme=color_scheme, **props),
+            ThemePanelCopyButtonOverride.create(),
+        )
+
+
+class ThemePanelCopyButtonOverride(Component):
+    """Override the default "Copy Theme" button to copy reflex code."""
+
+    library = "/components/reflex/radix_themes_panel_copy_button_override.js"
+    tag = "ThemePanelCopyButtonOverride"
+    is_default = True
 
 
 class RadixThemesColorModeProvider(Component):
