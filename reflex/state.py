@@ -22,6 +22,7 @@ from typing import (
     Callable,
     ClassVar,
     Dict,
+    Iterator,
     List,
     Optional,
     Sequence,
@@ -192,6 +193,36 @@ def _wait_substates_method_async_in_thread(state: BaseState, method_name: str, r
     return _wait_async_in_thread(coro())
 
 
+async def _get_state_instance_coro(state: BaseState, substate_cls: Type[BaseState]) -> BaseState:
+    async with state._state(substate_cls, read_only=True) as substate:
+        return substate
+
+
+class SubStateCommitHelper(wrapt.ObjectProxy):
+    def __setattr__(self, name: str, value: Any):
+        print("Commit setattr", self.__wrapped__)
+        super().__setattr__(name, value)
+        key = self.router.session.client_token + "_" + self.get_full_name()
+        _wait_async_in_thread(_get_state_manager().set_state(key, self.__wrapped__))
+
+
+class SubStateCompatHelper:
+    def __init__(self, state: BaseState):
+        self.state = state
+
+    def __getitem__(self, path: str) -> SubStateCommitHelper:
+        console.deprecate("state.substates", "substates operate independently and should be accessed via `async with self._state(SubState) as substate`", "0.4.0", "0.5.0")
+        state_cls = self.state.get_class_substate(tuple(path.split(".")))
+        return SubStateCommitHelper(_wait_async_in_thread(_get_state_instance_coro(self.state, state_cls)))
+
+    def __len__(self) -> int:
+        return len(self.state.get_substates())
+
+    def __iter__(self) -> Iterator[str]:
+        for state_cls in self.state.get_substates():
+            yield state_cls.get_name()
+
+
 class BaseState(Base, ABC, extra=pydantic.Extra.allow):
     """The state of the app."""
 
@@ -232,6 +263,7 @@ class BaseState(Base, ABC, extra=pydantic.Extra.allow):
     _always_dirty_substates: ClassVar[Set[str]] = set()
 
     # The parent state.
+    # TODO TODO TODO: get the parent state working again
     parent_state: Optional[BaseState] = None
 
     # The set of dirty vars.
@@ -248,6 +280,11 @@ class BaseState(Base, ABC, extra=pydantic.Extra.allow):
 
     # The router data for the current page
     router: RouterData = RouterData()
+
+    @property
+    def substates(self) -> SubStateCompatHelper:
+        # Allow `self.substates[...]` to be used to access substates
+        return SubStateCompatHelper(self)
 
     def __init__(self, *args, parent_state: BaseState | None = None, **kwargs):
         """Initialize the state.
@@ -976,15 +1013,14 @@ class BaseState(Base, ABC, extra=pydantic.Extra.allow):
         Raises:
             ValueError: If the substate is not found.
         """
-        raise RuntimeError("get_substate no longer works; use `async with self._state(Substate)` as substate instead")
+        console.deprecate("state.get_substate", "state._state", "0.4.0", "0.5.0")
+        state_cls = self.get_class_substate(tuple(path))
+        return SubStateCommitHelper(_wait_async_in_thread(_get_state_instance_coro(self, state_cls)))
 
     @contextlib.asynccontextmanager
     async def _state(self, state_cls: Type[BaseState], read_only: bool = False) -> BaseState:
         state_manager = _get_state_manager()
         router = self.router
-        if not router.session.client_token:
-            yield state_cls()  # compile time
-            return
         key = router.session.client_token + "_" + state_cls.get_full_name()
         if read_only:
             yield await state_manager.get_state(key)
@@ -1641,7 +1677,7 @@ class StateManagerMemory(StateManager):
             token: The token to set the state for.
             state: The state to set.
         """
-        pass
+        self.states[token] = state
 
     @contextlib.asynccontextmanager
     async def modify_state(self, token: str) -> AsyncIterator[BaseState]:
@@ -1662,6 +1698,10 @@ class StateManagerMemory(StateManager):
             state = await self.get_state(token)
             yield state
             await self.set_state(token, state)
+
+    async def close(self):
+        """Close the state manager."""
+        self._states_locks.clear()
 
 
 class StateManagerRedis(StateManager):
@@ -1715,13 +1755,7 @@ class StateManagerRedis(StateManager):
         Returns:
             The state for the token.
         """
-        try:
-            redis_state = await self.redis.get(token)
-        except RuntimeError:
-            # Try again if there was an event loop error
-            self.redis.close()
-            print("Fuck trying again")
-            redis_state = await self.redis.get(token)
+        redis_state = await self.redis.get(token)
 
         if redis_state is None:
             state_path = token.partition("_")[2]

@@ -160,13 +160,20 @@ class DateTimeState(BaseState):
 
 
 @pytest.fixture
-def test_state() -> TestState:
+def test_state(token) -> TestState:
     """A state.
+
+    Args:
+        token: A token.
 
     Returns:
         A test state.
     """
-    return TestState()  # type: ignore
+    rx.state._get_state_manager().state = TestState
+    ts = TestState()  # type: ignore
+    ts.router.session.client_token = token
+    ts.dirty_vars.clear()
+    return ts
 
 
 @pytest_asyncio.fixture
@@ -927,6 +934,7 @@ def interdependent_state() -> BaseState:
     Returns:
         instance of InterdependentState
     """
+    rx.state._get_state_manager().state = InterdependentState
     s = InterdependentState()
     s.dict()  # prime initial relationships by accessing all ComputedVars
     return s
@@ -997,6 +1005,8 @@ def test_child_state():
     class MainState(BaseState):
         v: int = 2
 
+    rx.state._get_state_manager().state = MainState
+
     class ChildState(MainState):
         @ComputedVar
         def rendered_var(self):
@@ -1022,6 +1032,8 @@ def test_conditional_computed_vars():
             if self.flag:
                 return self.t1
             return self.t2
+
+    rx.state._get_state_manager().state = MainState
 
     ms = MainState()
     # Initially there are no dirty computed vars.
@@ -1066,6 +1078,8 @@ def test_event_handlers_call_other_handlers():
         def set_v2(self, v: int):
             self.set_v(v)
 
+    rx.state._get_state_manager().state = MainState
+
     class SubState(MainState):
         def set_v3(self, v: int):
             self.set_v2(v)
@@ -1091,6 +1105,8 @@ def test_computed_var_cached():
             nonlocal comp_v_calls
             comp_v_calls += 1
             return self.v
+
+    rx.state._get_state_manager().state = ComputedState
 
     cs = ComputedState()
     assert cs.dict()[cs.get_full_name()]["v"] == 0
@@ -1122,6 +1138,8 @@ def test_computed_var_cached_depends_on_non_cached():
         @rx.cached_var
         def comp_v(self) -> int:
             return self.v
+
+    rx.state._get_state_manager().state = ComputedState
 
     cs = ComputedState()
     assert cs.dirty_vars == set()
@@ -1156,6 +1174,8 @@ def test_computed_var_depends_on_parent_non_cached():
             nonlocal counter
             counter += 1
             return counter
+
+    rx.state._get_state_manager().state = ParentState
 
     class ChildState(ParentState):
         @rx.cached_var
@@ -1210,6 +1230,8 @@ def test_cached_var_depends_on_event_handler(use_partial: bool):
             nonlocal counter
             counter += 1
             return counter
+
+    rx.state._get_state_manager().state = HandlerState
 
     if use_partial:
         HandlerState.handler = functools.partial(HandlerState.handler.fn)
@@ -2235,6 +2257,8 @@ def test_json_dumps_with_mutables():
     class MutableContainsBase(BaseState):
         items: List[Foo] = [Foo()]
 
+    rx.state._get_state_manager().state = MutableContainsBase
+
     dict_val = MutableContainsBase().dict()
     assert isinstance(dict_val[MutableContainsBase.get_full_name()]["items"][0], dict)
     val = json_dumps(dict_val)
@@ -2253,6 +2277,8 @@ def test_reset_with_mutables():
 
     class MutableResetState(BaseState):
         items: List[List[int]] = default
+
+    rx.state._get_state_manager().state = MutableResetState
 
     instance = MutableResetState()
     assert instance.items.__wrapped__ is not default  # type: ignore
