@@ -158,18 +158,30 @@ RESERVED_BACKEND_VAR_NAMES = {
 _STATE_MANAGER_THREAD_POOL = ThreadPoolExecutor()
 
 
-def _wait_async_in_thread(coro):
+def _wait_async_in_thread(coro) -> Any:
     async def coro_wrap():
         try:
-            v = await coro
-            print(f"{coro} returned {v}")
-            return v
+            return await coro
         finally:
             app = getattr(prerequisites.get_app(), constants.CompileVars.APP)
             if hasattr(app.state_manager, "close"):
                 await app.state_manager.close()
 
     return _STATE_MANAGER_THREAD_POOL.submit(asyncio.run, coro_wrap()).result()
+
+
+def _wait_substates_method_async_in_thread(state: BaseState, method_name: str, read_only: bool = False, *args, **kwargs) -> Any:
+    results = []
+    if not state.get_substates():
+        return results
+
+    async def coro():
+        for substate_cls in state.get_substates():
+            async with state._state(substate_cls, read_only=read_only) as substate:
+                results.append(getattr(substate, method_name)(*args, **kwargs))
+        return results
+    
+    return _wait_async_in_thread(coro())
 
 
 class BaseState(Base, ABC, extra=pydantic.Extra.allow):
@@ -927,19 +939,7 @@ class BaseState(Base, ABC, extra=pydantic.Extra.allow):
                 continue  # never reset the router data
             setattr(self, prop_name, copy.deepcopy(fields[prop_name].default))
 
-        if self.get_substates():
-            # Recursively reset the substates.
-            self._reset_substates_in_thread()
-
-    def _reset_substates_in_thread(self):
-        console.deprecate("Recursively resetting substates", "All substates operate independently and should be reset individually", "0.4.0", "0.5.0")
-
-        async def reset_substates():
-            for substate_cls in self.get_substates():
-                async with self._state(substate_cls) as substate:
-                    substate.reset()
-        
-        _wait_async_in_thread(reset_substates())
+        _wait_substates_method_async_in_thread(self, "reset")
 
     def _reset_client_storage(self):
         """Reset client storage base vars to their default values."""
@@ -954,17 +954,7 @@ class BaseState(Base, ABC, extra=pydantic.Extra.allow):
             ):
                 setattr(self, prop_name, copy.deepcopy(field.default))
 
-        if self.get_substates():
-            # Recursively reset the substates.
-            self._reset_client_storage_substates_in_thread()
-
-    def _reset_client_storage_substates_in_thread(self):
-        async def _reset_client_storage():
-            for substate_cls in self.get_substates():
-                async with self._state(substate_cls) as substate:
-                    substate._reset_client_storage()
-
-        _wait_async_in_thread(_reset_client_storage())
+        _wait_substates_method_async_in_thread(self, "_reset_client_storage")
 
     def get_substate(self, path: Sequence[str]) -> BaseState | None:
         """Get the substate.
@@ -999,7 +989,7 @@ class BaseState(Base, ABC, extra=pydantic.Extra.allow):
         if read_only:
             yield await app.state_manager.get_state(key)
         else:
-            async with app.modify_state(key) as state_instance:
+            async with app.state_manager.modify_state(key) as state_instance:
                 yield state_instance
 
     def _get_event_handler(
@@ -1199,16 +1189,6 @@ class BaseState(Base, ABC, extra=pydantic.Extra.allow):
             for cvar in self._computed_var_dependencies[dirty_var]
         )
 
-    def _get_delta_substates_in_thread(self) -> Delta:
-        async def _get_delta():
-            delta = {}
-            for substate_cls in self.get_substates():
-                async with self._state(substate_cls) as substate:
-                    delta.update(substate.get_delta())
-            return delta
-
-        return _wait_async_in_thread(_get_delta())
-
     def get_delta(self) -> Delta:
         """Get the delta for the state.
 
@@ -1238,8 +1218,8 @@ class BaseState(Base, ABC, extra=pydantic.Extra.allow):
             delta[self.get_full_name()] = subdelta
 
         # Recursively find the substate deltas.
-        if self.get_substates():
-            delta.update(self._get_delta_substates_in_thread())
+        for subdelta in _wait_substates_method_async_in_thread(self, "get_delta", read_only=True):
+            delta.update(subdelta)
 
         # Format the delta.
         delta = format.format_state(delta)
@@ -1266,37 +1246,25 @@ class BaseState(Base, ABC, extra=pydantic.Extra.allow):
 
         # Propagate dirty var / computed var status into substates
         if self.get_substates():
-            self._mark_dirty_substates_in_thread()
+            async def _mark_dirty_substates():
+                for var in self.dirty_vars:
+                    for substate_name in self._substate_var_dependencies[var]:
+                        self.dirty_substates.add(substate_name)
+                        substate_cls = self.get_substate(substate_name.split("."))
+                        async with self._state(substate_cls) as substate:
+                            substate.dirty_vars.add(var)
+                            substate._mark_dirty()
 
-    def _mark_dirty_substates_in_thread(self):
-        async def _mark_dirty_substates():
-            for var in self.dirty_vars:
-                for substate_name in self._substate_var_dependencies[var]:
-                    self.dirty_substates.add(substate_name)
-                    substate_cls = self.get_substate(substate_name.split("."))
-                    async with self._state(substate_cls) as substate:
-                        substate.dirty_vars.add(var)
-                        substate._mark_dirty()
-
-        _wait_async_in_thread(_mark_dirty_substates())
+            _wait_async_in_thread(_mark_dirty_substates())
 
     def _clean(self):
         """Reset the dirty vars."""
         # Recursively clean the substates.
-        if self.get_substates():
-            self._clean_substates_in_thread()
+        _wait_substates_method_async_in_thread(self, "_clean")
 
         # Clean this state.
         self.dirty_vars = set()
         self.dirty_substates = set()
-
-    def _clean_substates_in_thread(self):
-        async def _clean_substates():
-            for substate_cls in self.get_substates():
-                async with self._state(substate_cls) as substate:
-                    substate._clean()
-
-        _wait_async_in_thread(_clean_substates())
 
     def get_value(self, key: str) -> Any:
         """Get the value of a field (without proxying).
@@ -1317,7 +1285,6 @@ class BaseState(Base, ABC, extra=pydantic.Extra.allow):
         d = self.dict(include_computed=include_computed, **kwargs)
         for substate_cls in self.class_subclasses:
             async with self._state(substate_cls, read_only=True) as substate:
-                print(substate)
                 d.update(await substate._full_dict())
         return d
 
