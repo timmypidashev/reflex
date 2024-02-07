@@ -158,14 +158,22 @@ RESERVED_BACKEND_VAR_NAMES = {
 _STATE_MANAGER_THREAD_POOL = ThreadPoolExecutor()
 
 
+def _get_state_manager() -> "StateManager":
+    try:
+        return getattr(prerequisites.get_app(), constants.CompileVars.APP).state_manager
+    except RuntimeError:
+        # when running tests, the app may not be available
+        return _STATE_MANAGER_GLOBAL_FOR_TEST
+
+
 def _wait_async_in_thread(coro) -> Any:
     async def coro_wrap():
         try:
             return await coro
         finally:
-            app = getattr(prerequisites.get_app(), constants.CompileVars.APP)
-            if hasattr(app.state_manager, "close"):
-                await app.state_manager.close()
+            state_manager = _get_state_manager()
+            if hasattr(state_manager, "close"):
+                await state_manager.close()
 
     return _STATE_MANAGER_THREAD_POOL.submit(asyncio.run, coro_wrap()).result()
 
@@ -968,28 +976,20 @@ class BaseState(Base, ABC, extra=pydantic.Extra.allow):
         Raises:
             ValueError: If the substate is not found.
         """
-        if len(path) == 0:
-            return self
-        if path[0] == self.get_name():
-            if len(path) == 1:
-                return self
-            path = path[1:]
-        if path[0] not in self.substates:
-            raise ValueError(f"Invalid path: {path}")
-        return self.substates[path[0]].get_substate(path[1:])
+        raise RuntimeError("get_substate no longer works; use `async with self._state(Substate)` as substate instead")
 
     @contextlib.asynccontextmanager
     async def _state(self, state_cls: Type[BaseState], read_only: bool = False) -> BaseState:
-        app = getattr(prerequisites.get_app(), constants.CompileVars.APP)
+        state_manager = _get_state_manager()
         router = self.router
         if not router.session.client_token:
             yield state_cls()  # compile time
             return
         key = router.session.client_token + "_" + state_cls.get_full_name()
         if read_only:
-            yield await app.state_manager.get_state(key)
+            yield await state_manager.get_state(key)
         else:
-            async with app.state_manager.modify_state(key) as state_instance:
+            async with state_manager.modify_state(key) as state_instance:
                 yield state_instance
 
     def _get_event_handler(
@@ -1628,7 +1628,7 @@ class StateManagerMemory(StateManager):
         if token not in self.states:
             state_path = token.partition("_")[2]
             if state_path:
-                state_cls = self.state.get_class_substate(state_path.split("."))
+                state_cls = self.state.get_class_substate(tuple(state_path.split(".")))
             else:
                 state_cls = self.state
             self.states[token] = state_cls()
@@ -1876,6 +1876,10 @@ class StateManagerRedis(StateManager):
         Note: Connections will be automatically reopened when needed.
         """
         await self.redis.close(close_connection_pool=True)
+
+
+# Allow tests to use a shared StateManager instance
+_STATE_MANAGER_GLOBAL_FOR_TEST = StateManager.create(State)
 
 
 class ClientStorageBase:

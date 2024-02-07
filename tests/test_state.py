@@ -11,6 +11,7 @@ from typing import Any, Dict, Generator, List, Optional, Union
 from unittest.mock import AsyncMock, Mock
 
 import pytest
+import pytest_asyncio
 from plotly.graph_objects import Figure
 
 import reflex as rx
@@ -168,8 +169,8 @@ def test_state() -> TestState:
     return TestState()  # type: ignore
 
 
-@pytest.fixture
-def child_state(test_state) -> ChildState:
+@pytest_asyncio.fixture
+async def child_state(test_state) -> ChildState:
     """A child state.
 
     Args:
@@ -178,13 +179,13 @@ def child_state(test_state) -> ChildState:
     Returns:
         A test child state.
     """
-    child_state = test_state.get_substate(["child_state"])
-    assert child_state is not None
-    return child_state
+    async with test_state._state(ChildState) as child_state:
+        assert child_state is not None
+        yield child_state
 
 
-@pytest.fixture
-def child_state2(test_state) -> ChildState2:
+@pytest_asyncio.fixture
+async def child_state2(test_state) -> ChildState2:
     """A second child state.
 
     Args:
@@ -193,13 +194,13 @@ def child_state2(test_state) -> ChildState2:
     Returns:
         A second test child state.
     """
-    child_state2 = test_state.get_substate(["child_state2"])
-    assert child_state2 is not None
-    return child_state2
+    async with test_state._state(ChildState2) as child_state2:
+        assert child_state2 is not None
+        yield child_state2
 
 
-@pytest.fixture
-def grandchild_state(child_state) -> GrandchildState:
+@pytest_asyncio.fixture
+async def grandchild_state(child_state) -> GrandchildState:
     """A state.
 
     Args:
@@ -208,9 +209,9 @@ def grandchild_state(child_state) -> GrandchildState:
     Returns:
         A test state.
     """
-    grandchild_state = child_state.get_substate(["grandchild_state"])
-    assert grandchild_state is not None
-    return grandchild_state
+    async with child_state._state(GrandchildState) as grandchild_state:
+        assert grandchild_state is not None
+        yield grandchild_state
 
 
 def test_base_class_vars(test_state):
@@ -461,7 +462,8 @@ def test_set_class_var():
     assert var._var_state == TestState.get_full_name()
 
 
-def test_set_parent_and_substates(test_state, child_state, grandchild_state):
+@pytest.mark.asyncio
+async def test_set_parent_and_substates(test_state, child_state, grandchild_state):
     """Test setting the parent and substates.
 
     Args:
@@ -480,7 +482,8 @@ def test_set_parent_and_substates(test_state, child_state, grandchild_state):
     assert len(grandchild_state.substates) == 0
 
 
-def test_get_child_attribute(test_state, child_state, child_state2, grandchild_state):
+@pytest.mark.asyncio
+async def test_get_child_attribute(test_state, child_state, child_state2, grandchild_state):
     """Test getting the attribute of a state.
 
     Args:
@@ -502,7 +505,8 @@ def test_get_child_attribute(test_state, child_state, child_state2, grandchild_s
         test_state.child_state.grandchild_state.invalid
 
 
-def test_set_child_attribute(test_state, child_state, grandchild_state):
+@pytest.mark.asyncio
+async def test_set_child_attribute(test_state, child_state, grandchild_state):
     """Test setting the attribute of a state.
 
     Args:
@@ -532,7 +536,8 @@ def test_set_child_attribute(test_state, child_state, grandchild_state):
     assert grandchild_state.value2 == "test3"
 
 
-def test_get_substate(test_state, child_state, child_state2, grandchild_state):
+@pytest.mark.asyncio
+async def test_get_substate(test_state, child_state, child_state2, grandchild_state):
     """Test getting the substate of a state.
 
     Args:
@@ -577,7 +582,8 @@ def test_set_dirty_var(test_state):
     assert test_state.dirty_vars == set()
 
 
-def test_set_dirty_substate(test_state, child_state, child_state2, grandchild_state):
+@pytest.mark.asyncio
+async def test_set_dirty_substate(test_state, child_state, child_state2, grandchild_state):
     """Test changing substate vars marks the value as dirty.
 
     Args:
@@ -615,7 +621,8 @@ def test_set_dirty_substate(test_state, child_state, child_state2, grandchild_st
     assert grandchild_state.dirty_vars == set()
 
 
-def test_reset(test_state, child_state):
+@pytest.mark.asyncio
+async def test_reset(test_state, child_state):
     """Test resetting the state.
 
     Args:
