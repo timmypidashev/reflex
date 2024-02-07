@@ -1,6 +1,7 @@
 """Compiler for the reflex apps."""
 from __future__ import annotations
 
+import asyncio
 import os
 from pathlib import Path
 from typing import Iterable, Optional, Type
@@ -67,7 +68,7 @@ def _is_dev_mode() -> bool:
     return os.environ.get("REFLEX_ENV_MODE", "dev") == "dev"
 
 
-def _compile_contexts(state: Optional[Type[BaseState]]) -> str:
+async def _compile_contexts(state: Optional[Type[BaseState]]) -> str:
     """Compile the initial state and contexts.
 
     Args:
@@ -78,7 +79,7 @@ def _compile_contexts(state: Optional[Type[BaseState]]) -> str:
     """
     return (
         templates.CONTEXT.render(
-            initial_state=utils.compile_state(state),
+            initial_state=await utils.compile_state(state),
             state_name=state.get_name(),
             client_storage=utils.compile_client_storage(state),
             is_dev_mode=_is_dev_mode(),
@@ -345,7 +346,7 @@ def compile_theme(style: ComponentStyle) -> tuple[str, str]:
     return output_path, code
 
 
-def compile_contexts(state: Optional[Type[BaseState]]) -> tuple[str, str]:
+async def compile_contexts(state: Optional[Type[BaseState]]) -> tuple[str, str]:
     """Compile the initial state / context.
 
     Args:
@@ -357,7 +358,7 @@ def compile_contexts(state: Optional[Type[BaseState]]) -> tuple[str, str]:
     # Get the path for the output file.
     output_path = utils.get_context_path()
 
-    return output_path, _compile_contexts(state)
+    return output_path, await _compile_contexts(state)
 
 
 def compile_page(
@@ -576,4 +577,4 @@ class ExecutorSafeFunctions:
         Returns:
             The path and code of the compiled contexts.
         """
-        return compile_contexts(cls.STATE)
+        return asyncio.run(compile_contexts(cls.STATE))

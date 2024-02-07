@@ -48,7 +48,12 @@ class HydrateMiddleware(Middleware):
                     setattr(var_state, var_name, value)
 
         # Get the initial state.
-        delta = format.format_state(state.dict())
+        try:
+            delta = format.format_state(await state._full_dict())
+        except Exception as e:
+            print(e)
+            raise
+        print(delta)
         # since a full dict was captured, clean any dirtiness
         state._clean()
 

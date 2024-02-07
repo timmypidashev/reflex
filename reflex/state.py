@@ -8,11 +8,13 @@ import functools
 import inspect
 import json
 import os
+import threading
 import traceback
 import urllib.parse
 import uuid
 from abc import ABC, abstractmethod
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
 from types import FunctionType, MethodType
 from typing import (
     Any,
@@ -153,6 +155,23 @@ RESERVED_BACKEND_VAR_NAMES = {
 }
 
 
+_STATE_MANAGER_THREAD_POOL = ThreadPoolExecutor()
+
+
+def _wait_async_in_thread(coro):
+    async def coro_wrap():
+        try:
+            v = await coro
+            print(f"{coro} returned {v}")
+            return v
+        finally:
+            app = getattr(prerequisites.get_app(), constants.CompileVars.APP)
+            if hasattr(app.state_manager, "close"):
+                await app.state_manager.close()
+
+    return _STATE_MANAGER_THREAD_POOL.submit(asyncio.run, coro_wrap()).result()
+
+
 class BaseState(Base, ABC, extra=pydantic.Extra.allow):
     """The state of the app."""
 
@@ -195,9 +214,6 @@ class BaseState(Base, ABC, extra=pydantic.Extra.allow):
     # The parent state.
     parent_state: Optional[BaseState] = None
 
-    # The substates of the state.
-    substates: Dict[str, BaseState] = {}
-
     # The set of dirty vars.
     dirty_vars: Set[str] = set()
 
@@ -225,9 +241,6 @@ class BaseState(Base, ABC, extra=pydantic.Extra.allow):
         kwargs["parent_state"] = parent_state
         super().__init__(*args, **kwargs)
 
-        # Setup the substates.
-        for substate in self.get_substates():
-            self.substates[substate.get_name()] = substate(parent_state=self)
         # Convert the event handlers to functions.
         self._init_event_handlers()
 
@@ -449,7 +462,6 @@ class BaseState(Base, ABC, extra=pydantic.Extra.allow):
             set(cls.inherited_vars)
             | {
                 "parent_state",
-                "substates",
                 "dirty_vars",
                 "dirty_substates",
                 "router_data",
@@ -842,7 +854,7 @@ class BaseState(Base, ABC, extra=pydantic.Extra.allow):
             **super().__getattribute__("inherited_vars"),
             **super().__getattribute__("inherited_backend_vars"),
         }
-        if name in inherited_vars:
+        if name in inherited_vars and name != "router":
             return getattr(super().__getattribute__("parent_state"), name)
 
         backend_vars = super().__getattribute__("_backend_vars")
@@ -874,7 +886,7 @@ class BaseState(Base, ABC, extra=pydantic.Extra.allow):
 
         # Set the var on the parent state.
         inherited_vars = {**self.inherited_vars, **self.inherited_backend_vars}
-        if name in inherited_vars:
+        if name in inherited_vars and name != "router":
             setattr(self.parent_state, name, value)
             return
 
@@ -885,6 +897,7 @@ class BaseState(Base, ABC, extra=pydantic.Extra.allow):
             self._backend_vars.__setitem__(name, value)
             self.dirty_vars.add(name)
             self._mark_dirty()
+            print(f"Set var {name}, marked {self.get_name()} dirty")
             return
 
         # Set the attribute.
@@ -894,14 +907,16 @@ class BaseState(Base, ABC, extra=pydantic.Extra.allow):
         if name in self.vars or name in self._computed_var_dependencies:
             self.dirty_vars.add(name)
             self._mark_dirty()
+            print(f"Set var {name}, marked {self.get_name()} dirty")
 
         # For now, handle router_data updates as a special case
         if name == constants.ROUTER_DATA:
             self.dirty_vars.add(name)
             self._mark_dirty()
             # propagate router_data updates down the state tree
-            for substate in self.substates.values():
-                setattr(substate, name, value)
+            # XXX: Do we still need this??
+            # for substate in self.substates.values():
+            #     setattr(substate, name, value)
 
     def reset(self):
         """Reset all the base vars to their default values."""
@@ -912,9 +927,19 @@ class BaseState(Base, ABC, extra=pydantic.Extra.allow):
                 continue  # never reset the router data
             setattr(self, prop_name, copy.deepcopy(fields[prop_name].default))
 
-        # Recursively reset the substates.
-        for substate in self.substates.values():
-            substate.reset()
+        if self.get_substates():
+            # Recursively reset the substates.
+            self._reset_substates_in_thread()
+
+    def _reset_substates_in_thread(self):
+        console.deprecate("Recursively resetting substates", "All substates operate independently and should be reset individually", "0.4.0", "0.5.0")
+
+        async def reset_substates():
+            for substate_cls in self.get_substates():
+                async with self._state(substate_cls) as substate:
+                    substate.reset()
+        
+        _wait_async_in_thread(reset_substates())
 
     def _reset_client_storage(self):
         """Reset client storage base vars to their default values."""
@@ -929,9 +954,17 @@ class BaseState(Base, ABC, extra=pydantic.Extra.allow):
             ):
                 setattr(self, prop_name, copy.deepcopy(field.default))
 
-        # Recursively reset the substate client storage.
-        for substate in self.substates.values():
-            substate._reset_client_storage()
+        if self.get_substates():
+            # Recursively reset the substates.
+            self._reset_client_storage_substates_in_thread()
+
+    def _reset_client_storage_substates_in_thread(self):
+        async def _reset_client_storage():
+            for substate_cls in self.get_substates():
+                async with self._state(substate_cls) as substate:
+                    substate._reset_client_storage()
+
+        _wait_async_in_thread(_reset_client_storage())
 
     def get_substate(self, path: Sequence[str]) -> BaseState | None:
         """Get the substate.
@@ -955,6 +988,20 @@ class BaseState(Base, ABC, extra=pydantic.Extra.allow):
             raise ValueError(f"Invalid path: {path}")
         return self.substates[path[0]].get_substate(path[1:])
 
+    @contextlib.asynccontextmanager
+    async def _state(self, state_cls: Type[BaseState], read_only: bool = False) -> BaseState:
+        app = getattr(prerequisites.get_app(), constants.CompileVars.APP)
+        router = self.router
+        if not router.session.client_token:
+            yield state_cls()  # compile time
+            return
+        key = router.session.client_token + "_" + state_cls.get_full_name()
+        if read_only:
+            yield await app.state_manager.get_state(key)
+        else:
+            async with app.modify_state(key) as state_instance:
+                yield state_instance
+
     def _get_event_handler(
         self, event: Event
     ) -> tuple[BaseState | StateProxy, EventHandler]:
@@ -971,13 +1018,8 @@ class BaseState(Base, ABC, extra=pydantic.Extra.allow):
             ValueError: If the event handler or substate is not found.
         """
         # Get the event handler.
-        path = event.name.split(".")
-        path, name = path[:-1], path[-1]
-        substate = self.get_substate(path)
-        if not substate:
-            raise ValueError(
-                "The value of state cannot be None when processing an event."
-            )
+        substate = self
+        name = event.name.rpartition(".")[2]
         handler = substate.event_handlers[name]
 
         # For background tasks, proxy the state
@@ -1157,6 +1199,16 @@ class BaseState(Base, ABC, extra=pydantic.Extra.allow):
             for cvar in self._computed_var_dependencies[dirty_var]
         )
 
+    def _get_delta_substates_in_thread(self) -> Delta:
+        async def _get_delta():
+            delta = {}
+            for substate_cls in self.get_substates():
+                async with self._state(substate_cls) as substate:
+                    delta.update(substate.get_delta())
+            return delta
+
+        return _wait_async_in_thread(_get_delta())
+
     def get_delta(self) -> Delta:
         """Get the delta for the state.
 
@@ -1186,12 +1238,14 @@ class BaseState(Base, ABC, extra=pydantic.Extra.allow):
             delta[self.get_full_name()] = subdelta
 
         # Recursively find the substate deltas.
-        substates = self.substates
-        for substate in self.dirty_substates.union(self._always_dirty_substates):
-            delta.update(substates[substate].get_delta())
+        if self.get_substates():
+            delta.update(self._get_delta_substates_in_thread())
 
         # Format the delta.
         delta = format.format_state(delta)
+        
+        if delta:
+            print(f"get delta for {self.get_name()}: {delta}")
 
         # Return the delta.
         return delta
@@ -1211,23 +1265,38 @@ class BaseState(Base, ABC, extra=pydantic.Extra.allow):
         self._mark_dirty_computed_vars()
 
         # Propagate dirty var / computed var status into substates
-        substates = self.substates
-        for var in self.dirty_vars:
-            for substate_name in self._substate_var_dependencies[var]:
-                self.dirty_substates.add(substate_name)
-                substate = substates[substate_name]
-                substate.dirty_vars.add(var)
-                substate._mark_dirty()
+        if self.get_substates():
+            self._mark_dirty_substates_in_thread()
+
+    def _mark_dirty_substates_in_thread(self):
+        async def _mark_dirty_substates():
+            for var in self.dirty_vars:
+                for substate_name in self._substate_var_dependencies[var]:
+                    self.dirty_substates.add(substate_name)
+                    substate_cls = self.get_substate(substate_name.split("."))
+                    async with self._state(substate_cls) as substate:
+                        substate.dirty_vars.add(var)
+                        substate._mark_dirty()
+
+        _wait_async_in_thread(_mark_dirty_substates())
 
     def _clean(self):
         """Reset the dirty vars."""
         # Recursively clean the substates.
-        for substate in self.dirty_substates:
-            self.substates[substate]._clean()
+        if self.get_substates():
+            self._clean_substates_in_thread()
 
         # Clean this state.
         self.dirty_vars = set()
         self.dirty_substates = set()
+
+    def _clean_substates_in_thread(self):
+        async def _clean_substates():
+            for substate_cls in self.get_substates():
+                async with self._state(substate_cls) as substate:
+                    substate._clean()
+
+        _wait_async_in_thread(_clean_substates())
 
     def get_value(self, key: str) -> Any:
         """Get the value of a field (without proxying).
@@ -1243,6 +1312,14 @@ class BaseState(Base, ABC, extra=pydantic.Extra.allow):
         if isinstance(key, MutableProxy):
             return super().get_value(key.__wrapped__)
         return super().get_value(key)
+
+    async def _full_dict(self, include_computed: bool = True, **kwargs) -> dict[str, Any]:
+        d = self.dict(include_computed=include_computed, **kwargs)
+        for substate_cls in self.class_subclasses:
+            async with self._state(substate_cls, read_only=True) as substate:
+                print(substate)
+                d.update(await substate._full_dict())
+        return d
 
     def dict(self, include_computed: bool = True, **kwargs) -> dict[str, Any]:
         """Convert the object to a dictionary.
@@ -1277,11 +1354,6 @@ class BaseState(Base, ABC, extra=pydantic.Extra.allow):
         d = {
             self.get_full_name(): {k: variables[k] for k in sorted(variables)},
         }
-        for substate_d in [
-            v.dict(include_computed=include_computed, **kwargs)
-            for v in self.substates.values()
-        ]:
-            d.update(substate_d)
         return d
 
     async def __aenter__(self) -> BaseState:
@@ -1587,7 +1659,12 @@ class StateManagerMemory(StateManager):
             The state for the token.
         """
         if token not in self.states:
-            self.states[token] = self.state()
+            state_path = token.partition("_")[2]
+            if state_path:
+                state_cls = self.state.get_class_substate(state_path.split("."))
+            else:
+                state_cls = self.state
+            self.states[token] = state_cls()
         return self.states[token]
 
     async def set_state(self, token: str, state: BaseState):
@@ -1624,7 +1701,7 @@ class StateManagerRedis(StateManager):
     """A state manager that stores states in redis."""
 
     # The redis client to use.
-    redis: Redis
+    redis_by_thread: dict[int, Redis] = {}
 
     # The token expiration time (s).
     token_expiration: int = constants.Expiration.TOKEN
@@ -1648,6 +1725,20 @@ class StateManagerRedis(StateManager):
         b"evicted",
     }
 
+    @property
+    def redis(self) -> Redis:
+        r = self.redis_by_thread.get(threading.get_ident())
+        if r is None:
+            self.redis_by_thread[threading.get_ident()] = r = prerequisites.get_redis()
+        return r
+
+    def __init__(self, **kwargs):
+        redis = kwargs.pop("redis")
+        if redis is not None:
+            redis_by_thread = kwargs.setdefault("redis_by_thread", {})
+            redis_by_thread[threading.get_ident()] = redis
+        super().__init__(**kwargs)
+
     async def get_state(self, token: str) -> BaseState:
         """Get the state for a token.
 
@@ -1657,9 +1748,21 @@ class StateManagerRedis(StateManager):
         Returns:
             The state for the token.
         """
-        redis_state = await self.redis.get(token)
+        try:
+            redis_state = await self.redis.get(token)
+        except RuntimeError:
+            # Try again if there was an event loop error
+            self.redis.close()
+            print("Fuck trying again")
+            redis_state = await self.redis.get(token)
+
         if redis_state is None:
-            await self.set_state(token, self.state())
+            state_path = token.partition("_")[2]
+            if state_path:
+                state_cls = self.state.get_class_substate(tuple(state_path.split(".")))
+            else:
+                state_cls = self.state
+            await self.set_state(token, state_cls())
             return await self.get_state(token)
         return cloudpickle.loads(redis_state)
 
@@ -1725,6 +1828,7 @@ class StateManagerRedis(StateManager):
         Returns:
             True if the lock was obtained.
         """
+        print("Try to get lock for ", lock_key, lock_id)
         return await self.redis.set(
             lock_key,
             lock_id,
