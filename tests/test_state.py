@@ -326,7 +326,8 @@ def test_computed_vars(test_state):
     assert test_state.upper == "HELLO WORLD"
 
 
-def test_dict(test_state):
+@pytest.mark.asyncio
+async def test_dict(test_state):
     """Test that the dict representation of a state is correct.
 
     Args:
@@ -339,8 +340,11 @@ def test_dict(test_state):
         "test_state.child_state2",
     }
     test_state_dict = test_state.dict()
-    assert set(test_state_dict) == substates
-    assert set(test_state_dict[test_state.get_name()]) == set(test_state.vars)
+    assert set(test_state_dict) == {"test_state"}
+
+    test_state_fdict = await test_state._full_dict()
+    assert set(test_state_fdict) == substates
+    assert set(test_state_fdict[test_state.get_name()]) == set(test_state.vars)
     assert set(test_state.dict(include_computed=False)[test_state.get_name()]) == set(
         test_state.base_vars
     )
