@@ -149,6 +149,7 @@ class RouterData(Base):
 
 RESERVED_BACKEND_VAR_NAMES = {
     "_backend_vars",
+    "_client_token",
     "_computed_var_dependencies",
     "_substate_var_dependencies",
     "_always_dirty_computed_vars",
@@ -197,13 +198,15 @@ async def _get_state_instance_coro(state: BaseState, substate_cls: Type[BaseStat
     async with state._state(substate_cls, read_only=True) as substate:
         return substate
 
+def _key(client_token: str, state: BaseState | Type[BaseState]) -> str:
+    return client_token + "_" + state.get_full_name()
+
 
 class SubStateCommitHelper(wrapt.ObjectProxy):
     def __setattr__(self, name: str, value: Any):
         print("Commit setattr", self.__wrapped__)
         super().__setattr__(name, value)
-        key = self.router.session.client_token + "_" + self.get_full_name()
-        _wait_async_in_thread(_get_state_manager().set_state(key, self.__wrapped__))
+        _wait_async_in_thread(_get_state_manager().set_state(self._key(), self.__wrapped__))
 
 
 class SubStateCompatHelper:
@@ -262,10 +265,6 @@ class BaseState(Base, ABC, extra=pydantic.Extra.allow):
     # Set of substates which always need to be recomputed
     _always_dirty_substates: ClassVar[Set[str]] = set()
 
-    # The parent state.
-    # TODO TODO TODO: get the parent state working again
-    parent_state: Optional[BaseState] = None
-
     # The set of dirty vars.
     dirty_vars: Set[str] = set()
 
@@ -281,10 +280,22 @@ class BaseState(Base, ABC, extra=pydantic.Extra.allow):
     # The router data for the current page
     router: RouterData = RouterData()
 
+    # The token associated with this state instance (should never change)
+    _client_token: str = ""
+
     @property
     def substates(self) -> SubStateCompatHelper:
         # Allow `self.substates[...]` to be used to access substates
         return SubStateCompatHelper(self)
+
+    @property
+    def parent_state(self) -> BaseState | None:
+        instance = self.get_parent_instance()
+        if instance is not None:
+            return instance.__wrapped__
+
+    def _key(self, state_cls: Type[BaseState] | None = None) -> str:
+        return _key(self._client_token, state_cls or self)
 
     def __init__(self, *args, parent_state: BaseState | None = None, **kwargs):
         """Initialize the state.
@@ -295,7 +306,7 @@ class BaseState(Base, ABC, extra=pydantic.Extra.allow):
             **kwargs: The kwargs to pass to the Pydantic init method.
 
         """
-        kwargs["parent_state"] = parent_state
+        # kwargs["parent_state"] = parent_state
         super().__init__(*args, **kwargs)
 
         # Convert the event handlers to functions.
@@ -541,6 +552,17 @@ class BaseState(Base, ABC, extra=pydantic.Extra.allow):
         ]
         assert len(parent_states) < 2, "Only one parent state is allowed."
         return parent_states[0] if len(parent_states) == 1 else None  # type: ignore
+
+    def get_parent_instance(self) -> BaseState | None:
+        """Get the parent instance.
+
+        Returns:
+            The parent instance.
+        """
+        parent_state_cls = self.get_parent_state()
+        if parent_state_cls is not None:
+            return SubStateCommitHelper(_wait_async_in_thread(_get_state_instance_coro(self, parent_state_cls)))
+        return None
 
     @classmethod
     def get_substates(cls) -> set[Type[BaseState]]:
@@ -912,7 +934,7 @@ class BaseState(Base, ABC, extra=pydantic.Extra.allow):
             **super().__getattribute__("inherited_backend_vars"),
         }
         if name in inherited_vars and name != "router":
-            return getattr(super().__getattribute__("parent_state"), name)
+            return getattr(super().__getattribute__("get_parent_instance")(), name)
 
         backend_vars = super().__getattribute__("_backend_vars")
         if name in backend_vars:
@@ -944,7 +966,7 @@ class BaseState(Base, ABC, extra=pydantic.Extra.allow):
         # Set the var on the parent state.
         inherited_vars = {**self.inherited_vars, **self.inherited_backend_vars}
         if name in inherited_vars and name != "router":
-            setattr(self.parent_state, name, value)
+            setattr(self.get_parent_instance(), name, value)
             return
 
         if (
@@ -1020,12 +1042,10 @@ class BaseState(Base, ABC, extra=pydantic.Extra.allow):
     @contextlib.asynccontextmanager
     async def _state(self, state_cls: Type[BaseState], read_only: bool = False) -> BaseState:
         state_manager = _get_state_manager()
-        router = self.router
-        key = router.session.client_token + "_" + state_cls.get_full_name()
         if read_only:
-            yield await state_manager.get_state(key)
+            yield await state_manager.get_state(self._key(state_cls))
         else:
-            async with state_manager.modify_state(key) as state_instance:
+            async with state_manager.modify_state(self._key(state_cls)) as state_instance:
                 yield state_instance
 
     def _get_event_handler(
@@ -1045,12 +1065,14 @@ class BaseState(Base, ABC, extra=pydantic.Extra.allow):
         """
         # Get the event handler.
         substate = self
-        name = event.name.rpartition(".")[2]
+        target_state, _dot, name = event.name.rpartition(".")
+        if target_state and substate.get_full_name() != target_state:
+            substate = substate.get_substate(tuple(target_state.split(".")))
         handler = substate.event_handlers[name]
 
         # For background tasks, proxy the state
         if handler.is_background:
-            substate = StateProxy(substate)
+            substate = StateProxy(self.substates[substate.get_full_name()].__wrapped__)
 
         return substate, handler
 
@@ -1126,7 +1148,7 @@ class BaseState(Base, ABC, extra=pydantic.Extra.allow):
         while state.parent_state is not None:
             state = state.parent_state
 
-        token = self.router.session.client_token
+        token = self._client_token
 
         # Convert valid EventHandler and EventSpec into Event
         fixed_events = fix_events(self._check_valid(handler, events), token)
@@ -1269,12 +1291,16 @@ class BaseState(Base, ABC, extra=pydantic.Extra.allow):
     def _mark_dirty(self):
         """Mark the substate and all parent states as dirty."""
         state_name = self.get_name()
-        if (
-            self.parent_state is not None
-            and state_name not in self.parent_state.dirty_substates
-        ):
-            self.parent_state.dirty_substates.add(self.get_name())
-            self.parent_state._mark_dirty()
+        if self.get_parent_state() is not None:
+            async def _mark_dirty_parent():
+                async with self._state(self.get_parent_state()) as parent_state:
+                    if (
+                        parent_state is not None
+                        and state_name not in parent_state.dirty_substates
+                    ):
+                        parent_state.dirty_substates.add(state_name)
+                        parent_state._mark_dirty()
+            _wait_async_in_thread(_mark_dirty_parent())
 
         # have to mark computed vars dirty to allow access to newly computed
         # values within the same ComputedVar function
@@ -1447,7 +1473,7 @@ class StateProxy(wrapt.ObjectProxy):
         super().__init__(state_instance)
         # compile is not relevant to backend logic
         self._self_app = getattr(prerequisites.get_app(), constants.CompileVars.APP)
-        self._self_substate_path = state_instance.get_full_name().split(".")
+        self._self_substate_cls = type(state_instance)
         self._self_actx = None
         self._self_mutable = False
 
@@ -1464,11 +1490,10 @@ class StateProxy(wrapt.ObjectProxy):
             This StateProxy instance in mutable mode.
         """
         self._self_actx = self._self_app.modify_state(
-            self.__wrapped__.router.session.client_token
+            self.__wrapped__._key(self._self_substate_cls)
         )
-        mutable_state = await self._self_actx.__aenter__()
         super().__setattr__(
-            "__wrapped__", mutable_state.get_substate(self._self_substate_path)
+            "__wrapped__", await self._self_actx.__aenter__()
         )
         self._self_mutable = True
         return self
@@ -1662,12 +1687,12 @@ class StateManagerMemory(StateManager):
             The state for the token.
         """
         if token not in self.states:
-            state_path = token.partition("_")[2]
+            client_token, _, state_path = token.partition("_")
             if state_path:
                 state_cls = self.state.get_class_substate(tuple(state_path.split(".")))
             else:
                 state_cls = self.state
-            self.states[token] = state_cls()
+            self.states[token] = state_cls(_client_token=client_token)
         return self.states[token]
 
     async def set_state(self, token: str, state: BaseState):
@@ -1758,12 +1783,12 @@ class StateManagerRedis(StateManager):
         redis_state = await self.redis.get(token)
 
         if redis_state is None:
-            state_path = token.partition("_")[2]
+            client_token, _, state_path = token.partition("_")
             if state_path:
                 state_cls = self.state.get_class_substate(tuple(state_path.split(".")))
             else:
                 state_cls = self.state
-            await self.set_state(token, state_cls())
+            await self.set_state(token, state_cls(_client_token=client_token))
             return await self.get_state(token)
         return cloudpickle.loads(redis_state)
 

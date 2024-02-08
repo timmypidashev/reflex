@@ -159,8 +159,8 @@ class DateTimeState(BaseState):
     td: datetime.timedelta = datetime.timedelta(days=11, minutes=11)
 
 
-@pytest.fixture
-def test_state(token) -> TestState:
+@pytest_asyncio.fixture
+async def test_state(token) -> TestState:
     """A state.
 
     Args:
@@ -169,11 +169,9 @@ def test_state(token) -> TestState:
     Returns:
         A test state.
     """
-    rx.state._get_state_manager().state = TestState
-    ts = TestState()  # type: ignore
-    ts.router.session.client_token = token
-    ts.dirty_vars.clear()
-    return ts
+    sm = rx.state._get_state_manager()
+    sm.state = TestState
+    return await sm.get_state(rx.state._key(token, TestState))  # type: ignore
 
 
 @pytest_asyncio.fixture
@@ -1070,7 +1068,8 @@ def test_event_handlers_convert_to_fns(test_state, child_state):
     assert child_state.count == 18
 
 
-def test_event_handlers_call_other_handlers():
+@pytest.mark.asyncio
+async def test_event_handlers_call_other_handlers(token):
     """Test that event handlers can call other event handlers."""
 
     class MainState(BaseState):
@@ -1088,12 +1087,13 @@ def test_event_handlers_call_other_handlers():
         def set_v3(self, v: int):
             self.set_v2(v)
 
-    ms = MainState()
+    ms = await rx.state._get_state_manager().get_state(rx.state._key(token, MainState))
     ms.set_v2(1)
     assert ms.v == 1
 
     # ensure handler can be called from substate
-    ms.substates[SubState.get_name()].set_v3(2)
+    async with ms._state(SubState) as substate:
+        substate.set_v3(2)
     assert ms.v == 2
 
 
@@ -1168,7 +1168,8 @@ def test_computed_var_cached_depends_on_non_cached():
     assert cs.dirty_vars == set()
 
 
-def test_computed_var_depends_on_parent_non_cached():
+@pytest.mark.asyncio
+async def test_computed_var_depends_on_parent_non_cached(token):
     """Child state cached_var that depends on parent state un cached var is always recalculated."""
     counter = 0
 
@@ -1186,25 +1187,25 @@ def test_computed_var_depends_on_parent_non_cached():
         def dep_v(self) -> int:
             return self.no_cache_v  # type: ignore
 
-    ps = ParentState()
+    ps = await rx.state._get_state_manager().get_state(rx.state._key(token, ParentState))
     cs = ps.substates[ChildState.get_name()]
 
     assert ps.dirty_vars == set()
     assert cs.dirty_vars == set()
 
-    dict1 = ps.dict()
+    dict1 = await ps._full_dict()
     assert dict1[ps.get_full_name()] == {
         "no_cache_v": 1,
         "router": formatted_router,
     }
     assert dict1[cs.get_full_name()] == {"dep_v": 2}
-    dict2 = ps.dict()
+    dict2 = await ps._full_dict()
     assert dict2[ps.get_full_name()] == {
         "no_cache_v": 3,
         "router": formatted_router,
     }
     assert dict2[cs.get_full_name()] == {"dep_v": 4}
-    dict3 = ps.dict()
+    dict3 = await ps._full_dict()
     assert dict3[ps.get_full_name()] == {
         "no_cache_v": 5,
         "router": formatted_router,
@@ -1632,23 +1633,22 @@ def mock_app(monkeypatch, state_manager: StateManager) -> rx.App:
 
 
 @pytest.mark.asyncio
-async def test_state_proxy(grandchild_state: GrandchildState, mock_app: rx.App):
+async def test_state_proxy(mock_app: rx.App, token: str):
     """Test that the state proxy works.
 
     Args:
         grandchild_state: A grandchild state.
         mock_app: An app that will be returned by `get_app()`
     """
+    grandchild_state = await mock_app.state_manager.get_state(rx.state._key(token, GrandchildState))
     child_state = grandchild_state.parent_state
     assert child_state is not None
     parent_state = child_state.parent_state
     assert parent_state is not None
-    if isinstance(mock_app.state_manager, StateManagerMemory):
-        mock_app.state_manager.states[parent_state.get_token()] = parent_state
 
     sp = StateProxy(grandchild_state)
     assert sp.__wrapped__ == grandchild_state
-    assert sp._self_substate_path == grandchild_state.get_full_name().split(".")
+    assert sp._self_substate_cls == GrandchildState
     assert sp._self_app is mock_app
     assert not sp._self_mutable
     assert sp._self_actx is None
@@ -1676,15 +1676,15 @@ async def test_state_proxy(grandchild_state: GrandchildState, mock_app: rx.App):
     assert sp.value2 == 42
 
     # Get the state from the state manager directly and check that the value is updated
-    gotten_state = await mock_app.state_manager.get_state(grandchild_state.get_token())
+    gotten_state = await mock_app.state_manager.get_state(rx.state._key(token, TestState))
     if isinstance(mock_app.state_manager, StateManagerMemory):
         # For in-process store, only one instance of the state exists
         assert gotten_state is parent_state
     else:
         assert gotten_state is not parent_state
-    gotten_grandchild_state = gotten_state.get_substate(sp._self_substate_path)
-    assert gotten_grandchild_state is not None
-    assert gotten_grandchild_state.value2 == 42
+    async with gotten_state._state(sp._self_substate_cls) as gotten_grandchild_state:
+        assert gotten_grandchild_state is not None
+        assert gotten_grandchild_state.value2 == 42
 
     # ensure state update was emitted
     assert mock_app.event_namespace is not None
@@ -1693,10 +1693,6 @@ async def test_state_proxy(grandchild_state: GrandchildState, mock_app: rx.App):
     assert mcall.args[0] == str(SocketEvent.EVENT)
     assert json.loads(mcall.args[1]) == StateUpdate(
         delta={
-            parent_state.get_full_name(): {
-                "upper": "",
-                "sum": 3.14,
-            },
             grandchild_state.get_full_name(): {
                 "value2": 42,
             },
@@ -1869,7 +1865,7 @@ async def test_background_task_no_block(mock_app: rx.App, token: str):
         "private",
     ]
 
-    assert (await mock_app.state_manager.get_state(token)).order == exp_order
+    assert (await mock_app.state_manager.get_state(rx.state._key(token, BackgroundTaskState))).order == exp_order
 
     assert mock_app.event_namespace is not None
     emit_mock = mock_app.event_namespace.emit
@@ -1946,7 +1942,7 @@ async def test_background_task_reset(mock_app: rx.App, token: str):
         await task
     assert not mock_app.background_tasks
 
-    assert (await mock_app.state_manager.get_state(token)).order == [
+    assert (await mock_app.state_manager.get_state(rx.state._key(token, BackgroundTaskState))).order == [
         "reset",
     ]
 
