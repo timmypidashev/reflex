@@ -1067,12 +1067,13 @@ class BaseState(Base, ABC, extra=pydantic.Extra.allow):
         substate = self
         target_state, _dot, name = event.name.rpartition(".")
         if target_state and substate.get_full_name() != target_state:
-            substate = substate.get_substate(tuple(target_state.split(".")))
+            substate_cls = substate.get_substate(tuple(target_state.split(".")))
+            substate = self.substates[substate_cls.get_full_name()].__wrapped__
         handler = substate.event_handlers[name]
 
         # For background tasks, proxy the state
         if handler.is_background:
-            substate = StateProxy(self.substates[substate.get_full_name()].__wrapped__)
+            substate = StateProxy(substate)
 
         return substate, handler
 
