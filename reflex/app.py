@@ -1007,17 +1007,16 @@ def upload(app: App):
                 detail="Missing reflex-client-token or reflex-event-handler header.",
             )
 
-        # Get the state for the session.
-        state = await app.state_manager.get_state(token)
+        substate_name, _dot, handler_name = handler.rpartition(".")
+        state_key = token + "_" + substate_name
 
-        # get the current session ID
-        # get the current state(parent state/substate)
-        path = handler.split(".")[:-1]
-        current_state = state.get_substate(path)
+        # Get the state for the session.
+        state = await app.state_manager.get_state(state_key)
+
         handler_upload_param = ()
 
         # get handler function
-        func = getattr(type(current_state), handler.split(".")[-1])
+        func = getattr(type(state), handler_name)
 
         # check if there exists any handler args with annotation, List[UploadFile]
         if isinstance(func, EventHandler):
@@ -1054,8 +1053,7 @@ def upload(app: App):
             Yields:
                 Each state update as JSON followed by a new line.
             """
-            # Process the event.
-            async with app.state_manager.modify_state(token) as state:
+            async with app.state_manager.modify_state(state_key) as state:
                 async for update in state._process(event):
                     # Postprocess the event.
                     update = await app.postprocess(state, event, update)
