@@ -196,3 +196,5 @@ class Switch(RadixThemesComponent):
             A new component instance.
         """
         ...
+
+switch = Switch.create

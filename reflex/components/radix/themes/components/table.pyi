@@ -7,6 +7,7 @@ from typing import Any, Dict, Literal, Optional, Union, overload
 from reflex.vars import Var, BaseVar, ComputedVar
 from reflex.event import EventChain, EventHandler, EventSpec
 from reflex.style import Style
+from types import SimpleNamespace
 from typing import List, Literal, Union
 from reflex import el
 from reflex.vars import Var
@@ -90,15 +91,6 @@ class TableRoot(el.Table, RadixThemesComponent):
         align: Optional[
             Union[Var[Union[str, int, bool]], Union[str, int, bool]]
         ] = None,
-        background: Optional[
-            Union[Var[Union[str, int, bool]], Union[str, int, bool]]
-        ] = None,
-        bgcolor: Optional[
-            Union[Var[Union[str, int, bool]], Union[str, int, bool]]
-        ] = None,
-        border: Optional[
-            Union[Var[Union[str, int, bool]], Union[str, int, bool]]
-        ] = None,
         summary: Optional[
             Union[Var[Union[str, int, bool]], Union[str, int, bool]]
         ] = None,
@@ -140,9 +132,6 @@ class TableRoot(el.Table, RadixThemesComponent):
             Union[Var[Union[str, int, bool]], Union[str, int, bool]]
         ] = None,
         title: Optional[
-            Union[Var[Union[str, int, bool]], Union[str, int, bool]]
-        ] = None,
-        translate: Optional[
             Union[Var[Union[str, int, bool]], Union[str, int, bool]]
         ] = None,
         style: Optional[Style] = None,
@@ -211,9 +200,6 @@ class TableRoot(el.Table, RadixThemesComponent):
             size: The size of the table: "1" | "2" | "3"
             variant: The variant of the table
             align: Alignment of the table
-            background: Background image for the table
-            bgcolor: Background color of the table
-            border: Specifies the width of the border around the table
             summary: Provides a summary of the table's purpose and structure
             access_key:  Provides a hint for generating a keyboard shortcut for the current element.
             auto_capitalize: Controls whether and how text input is automatically capitalized as it is entered/edited by the user.
@@ -231,7 +217,6 @@ class TableRoot(el.Table, RadixThemesComponent):
             spell_check: Defines whether the element may be checked for spelling errors.
             tab_index: Defines the position of the current element in the tabbing order.
             title: Defines a tooltip for the element.
-            translate: Specifies whether the content of an element should be translated or not.
             style: The style of the component.
             key: A unique key for the component.
             id: The id for the component.
@@ -358,9 +343,6 @@ class TableHeader(el.Thead, RadixThemesComponent):
         title: Optional[
             Union[Var[Union[str, int, bool]], Union[str, int, bool]]
         ] = None,
-        translate: Optional[
-            Union[Var[Union[str, int, bool]], Union[str, int, bool]]
-        ] = None,
         style: Optional[Style] = None,
         key: Optional[Any] = None,
         id: Optional[Any] = None,
@@ -441,7 +423,6 @@ class TableHeader(el.Thead, RadixThemesComponent):
             spell_check: Defines whether the element may be checked for spelling errors.
             tab_index: Defines the position of the current element in the tabbing order.
             title: Defines a tooltip for the element.
-            translate: Specifies whether the content of an element should be translated or not.
             style: The style of the component.
             key: A unique key for the component.
             id: The id for the component.
@@ -531,9 +512,6 @@ class TableRow(el.Tr, RadixThemesComponent):
                 Literal["start", "center", "end", "baseline"],
             ]
         ] = None,
-        bgcolor: Optional[
-            Union[Var[Union[str, int, bool]], Union[str, int, bool]]
-        ] = None,
         access_key: Optional[
             Union[Var[Union[str, int, bool]], Union[str, int, bool]]
         ] = None,
@@ -572,9 +550,6 @@ class TableRow(el.Tr, RadixThemesComponent):
             Union[Var[Union[str, int, bool]], Union[str, int, bool]]
         ] = None,
         title: Optional[
-            Union[Var[Union[str, int, bool]], Union[str, int, bool]]
-        ] = None,
-        translate: Optional[
             Union[Var[Union[str, int, bool]], Union[str, int, bool]]
         ] = None,
         style: Optional[Style] = None,
@@ -641,7 +616,6 @@ class TableRow(el.Tr, RadixThemesComponent):
             color: map to CSS default color property.
             color_scheme: map to radix color property.
             align: Alignment of the content within the table row
-            bgcolor: Background color of the table row
             access_key:  Provides a hint for generating a keyboard shortcut for the current element.
             auto_capitalize: Controls whether and how text input is automatically capitalized as it is entered/edited by the user.
             content_editable: Indicates whether the element's content is editable.
@@ -658,7 +632,6 @@ class TableRow(el.Tr, RadixThemesComponent):
             spell_check: Defines whether the element may be checked for spelling errors.
             tab_index: Defines the position of the current element in the tabbing order.
             title: Defines a tooltip for the element.
-            translate: Specifies whether the content of an element should be translated or not.
             style: The style of the component.
             key: A unique key for the component.
             id: The id for the component.
@@ -752,12 +725,6 @@ class TableColumnHeaderCell(el.Th, RadixThemesComponent):
         align: Optional[
             Union[Var[Union[str, int, bool]], Union[str, int, bool]]
         ] = None,
-        background: Optional[
-            Union[Var[Union[str, int, bool]], Union[str, int, bool]]
-        ] = None,
-        bgcolor: Optional[
-            Union[Var[Union[str, int, bool]], Union[str, int, bool]]
-        ] = None,
         col_span: Optional[
             Union[Var[Union[str, int, bool]], Union[str, int, bool]]
         ] = None,
@@ -808,9 +775,6 @@ class TableColumnHeaderCell(el.Th, RadixThemesComponent):
             Union[Var[Union[str, int, bool]], Union[str, int, bool]]
         ] = None,
         title: Optional[
-            Union[Var[Union[str, int, bool]], Union[str, int, bool]]
-        ] = None,
-        translate: Optional[
             Union[Var[Union[str, int, bool]], Union[str, int, bool]]
         ] = None,
         style: Optional[Style] = None,
@@ -879,8 +843,6 @@ class TableColumnHeaderCell(el.Th, RadixThemesComponent):
             justify: The justification of the column
             width: width of the column
             align: Alignment of the content within the table header cell
-            background: Background image for the table header cell
-            bgcolor: Background color of the table header cell
             col_span: Number of columns a header cell should span
             headers: IDs of the headers associated with this header cell
             row_span: Number of rows a header cell should span
@@ -901,7 +863,6 @@ class TableColumnHeaderCell(el.Th, RadixThemesComponent):
             spell_check: Defines whether the element may be checked for spelling errors.
             tab_index: Defines the position of the current element in the tabbing order.
             title: Defines a tooltip for the element.
-            translate: Specifies whether the content of an element should be translated or not.
             style: The style of the component.
             key: A unique key for the component.
             id: The id for the component.
@@ -988,9 +949,6 @@ class TableBody(el.Tbody, RadixThemesComponent):
         align: Optional[
             Union[Var[Union[str, int, bool]], Union[str, int, bool]]
         ] = None,
-        bgcolor: Optional[
-            Union[Var[Union[str, int, bool]], Union[str, int, bool]]
-        ] = None,
         access_key: Optional[
             Union[Var[Union[str, int, bool]], Union[str, int, bool]]
         ] = None,
@@ -1029,9 +987,6 @@ class TableBody(el.Tbody, RadixThemesComponent):
             Union[Var[Union[str, int, bool]], Union[str, int, bool]]
         ] = None,
         title: Optional[
-            Union[Var[Union[str, int, bool]], Union[str, int, bool]]
-        ] = None,
-        translate: Optional[
             Union[Var[Union[str, int, bool]], Union[str, int, bool]]
         ] = None,
         style: Optional[Style] = None,
@@ -1098,7 +1053,6 @@ class TableBody(el.Tbody, RadixThemesComponent):
             color: map to CSS default color property.
             color_scheme: map to radix color property.
             align: Alignment of the content within the table body
-            bgcolor: Background color of the table body
             access_key:  Provides a hint for generating a keyboard shortcut for the current element.
             auto_capitalize: Controls whether and how text input is automatically capitalized as it is entered/edited by the user.
             content_editable: Indicates whether the element's content is editable.
@@ -1115,7 +1069,6 @@ class TableBody(el.Tbody, RadixThemesComponent):
             spell_check: Defines whether the element may be checked for spelling errors.
             tab_index: Defines the position of the current element in the tabbing order.
             title: Defines a tooltip for the element.
-            translate: Specifies whether the content of an element should be translated or not.
             style: The style of the component.
             key: A unique key for the component.
             id: The id for the component.
@@ -1209,12 +1162,6 @@ class TableCell(el.Td, RadixThemesComponent):
         align: Optional[
             Union[Var[Union[str, int, bool]], Union[str, int, bool]]
         ] = None,
-        background: Optional[
-            Union[Var[Union[str, int, bool]], Union[str, int, bool]]
-        ] = None,
-        bgcolor: Optional[
-            Union[Var[Union[str, int, bool]], Union[str, int, bool]]
-        ] = None,
         col_span: Optional[
             Union[Var[Union[str, int, bool]], Union[str, int, bool]]
         ] = None,
@@ -1262,9 +1209,6 @@ class TableCell(el.Td, RadixThemesComponent):
             Union[Var[Union[str, int, bool]], Union[str, int, bool]]
         ] = None,
         title: Optional[
-            Union[Var[Union[str, int, bool]], Union[str, int, bool]]
-        ] = None,
-        translate: Optional[
             Union[Var[Union[str, int, bool]], Union[str, int, bool]]
         ] = None,
         style: Optional[Style] = None,
@@ -1333,8 +1277,6 @@ class TableCell(el.Td, RadixThemesComponent):
             justify: The justification of the column
             width: width of the column
             align: Alignment of the content within the table cell
-            background: Background image for the table cell
-            bgcolor: Background color of the table cell
             col_span: Number of columns a cell should span
             headers: IDs of the headers associated with this cell
             row_span: Number of rows a cell should span
@@ -1354,7 +1296,6 @@ class TableCell(el.Td, RadixThemesComponent):
             spell_check: Defines whether the element may be checked for spelling errors.
             tab_index: Defines the position of the current element in the tabbing order.
             title: Defines a tooltip for the element.
-            translate: Specifies whether the content of an element should be translated or not.
             style: The style of the component.
             key: A unique key for the component.
             id: The id for the component.
@@ -1448,12 +1389,6 @@ class TableRowHeaderCell(el.Th, RadixThemesComponent):
         align: Optional[
             Union[Var[Union[str, int, bool]], Union[str, int, bool]]
         ] = None,
-        background: Optional[
-            Union[Var[Union[str, int, bool]], Union[str, int, bool]]
-        ] = None,
-        bgcolor: Optional[
-            Union[Var[Union[str, int, bool]], Union[str, int, bool]]
-        ] = None,
         col_span: Optional[
             Union[Var[Union[str, int, bool]], Union[str, int, bool]]
         ] = None,
@@ -1504,9 +1439,6 @@ class TableRowHeaderCell(el.Th, RadixThemesComponent):
             Union[Var[Union[str, int, bool]], Union[str, int, bool]]
         ] = None,
         title: Optional[
-            Union[Var[Union[str, int, bool]], Union[str, int, bool]]
-        ] = None,
-        translate: Optional[
             Union[Var[Union[str, int, bool]], Union[str, int, bool]]
         ] = None,
         style: Optional[Style] = None,
@@ -1575,8 +1507,6 @@ class TableRowHeaderCell(el.Th, RadixThemesComponent):
             justify: The justification of the column
             width: width of the column
             align: Alignment of the content within the table header cell
-            background: Background image for the table header cell
-            bgcolor: Background color of the table header cell
             col_span: Number of columns a header cell should span
             headers: IDs of the headers associated with this header cell
             row_span: Number of rows a header cell should span
@@ -1597,7 +1527,6 @@ class TableRowHeaderCell(el.Th, RadixThemesComponent):
             spell_check: Defines whether the element may be checked for spelling errors.
             tab_index: Defines the position of the current element in the tabbing order.
             title: Defines a tooltip for the element.
-            translate: Specifies whether the content of an element should be translated or not.
             style: The style of the component.
             key: A unique key for the component.
             id: The id for the component.
@@ -1611,3 +1540,14 @@ class TableRowHeaderCell(el.Th, RadixThemesComponent):
             A new component instance.
         """
         ...
+
+class Table(SimpleNamespace):
+    root = staticmethod(TableRoot.create)
+    header = staticmethod(TableHeader.create)
+    body = staticmethod(TableBody.create)
+    row = staticmethod(TableRow.create)
+    cell = staticmethod(TableCell.create)
+    column_header_cell = staticmethod(TableColumnHeaderCell.create)
+    row_header_cell = staticmethod(TableRowHeaderCell.create)
+
+table = Table()

@@ -106,3 +106,6 @@ class Slider(RadixThemesComponent):
             }
         )
         return super().create(*children, default_value=default_value, **props)
+
+
+slider = Slider.create

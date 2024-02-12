@@ -211,3 +211,5 @@ class Slider(RadixThemesComponent):
             The component.
         """
         ...
+
+slider = Slider.create
