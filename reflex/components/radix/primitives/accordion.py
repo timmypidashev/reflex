@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
-from typing import Any, Dict, List, Literal
+from typing import Any, Dict, List, Literal, Optional
 
 from reflex.components.component import Component
-from reflex.components.core import match
+from reflex.components.core.match import Match
 from reflex.components.lucide.icon import Icon
 from reflex.components.radix.primitives.base import RadixPrimitiveComponent
 from reflex.components.radix.themes.base import LiteralAccentColor
@@ -37,7 +37,7 @@ def get_theme_accordion_root(variant: Var[str], color_scheme: Var[str]) -> BaseV
     Returns:
         The theme for the accordion root component.
     """
-    return match(  # type: ignore
+    return Match.create(  # type: ignore
         variant,
         (
             "soft",
@@ -86,7 +86,7 @@ def get_theme_accordion_root(variant: Var[str], color_scheme: Var[str]) -> BaseV
                 "background_color": f"var(--{color_scheme}-9)",
                 "box_shadow": "0 2px 10px var(--black-a4)",
             }
-        )
+        ),
         # defaults to classic
     )
 
@@ -140,7 +140,7 @@ def get_theme_accordion_trigger(variant: str | Var, color_scheme: str | Var) -> 
     Returns:
         The theme for the accordion trigger component.
     """
-    return match(  # type: ignore
+    return Match.create(  # type: ignore
         variant,
         (
             "soft",
@@ -240,7 +240,7 @@ def get_theme_accordion_content(variant: str | Var, color_scheme: str | Var) -> 
     Returns:
         The theme for the accordion content component.
     """
-    return match(  # type: ignore
+    return Match.create(  # type: ignore
         variant,
         (
             "outline",
@@ -270,12 +270,12 @@ def get_theme_accordion_content(variant: str | Var, color_scheme: str | Var) -> 
             {
                 "overflow": "hidden",
                 "font_size": "10px",
-                "color": match(
+                "color": Match.create(
                     variant,
                     ("classic", f"var(--{color_scheme}-9-contrast)"),
                     f"var(--{color_scheme}-11)",
                 ),
-                "background_color": match(
+                "background_color": Match.create(
                     variant,
                     ("classic", f"var(--{color_scheme}-9)"),
                     f"var(--{color_scheme}-3)",
@@ -339,12 +339,12 @@ class AccordionRoot(AccordionComponent):
     color_scheme: Var[LiteralAccentColor]  # type: ignore
 
     # dynamic themes of the accordion generated at compile time.
-    _dynamic_themes: Var[dict]
+    _dynamic_themes: Var[dict] = Var.create({})  # type: ignore
 
     # The var_data associated with the component.
     _var_data: VarData = VarData()  # type: ignore
 
-    _valid_children: List[str] = ["AccordionItem"]
+    _valid_children: List[str] = ["AccordionItem", "Foreach"]
 
     @classmethod
     def create(cls, *children, **props) -> Component:
@@ -468,6 +468,44 @@ class AccordionItem(AccordionComponent):
             }
         )
 
+    @classmethod
+    def create(
+        cls,
+        *children,
+        header: Optional[Component | Var] = None,
+        content: Optional[Component | Var] = None,
+        **props,
+    ) -> Component:
+        """Create an accordion item.
+
+        Args:
+            header: The header of the accordion item.
+            content: The content of the accordion item.
+            *children: The list of children to use if header and content are not provided.
+            **props: Additional properties to apply to the accordion item.
+
+        Returns:
+            The accordion item.
+        """
+        # The item requires a value to toggle (use the header as the default value).
+        value = props.pop("value", header if isinstance(header, Var) else str(header))
+
+        if (header is not None) and (content is not None):
+            children = [
+                AccordionHeader.create(
+                    AccordionTrigger.create(
+                        header,
+                        Icon.create(tag="chevron_down", class_name="AccordionChevron"),
+                        class_name="AccordionTrigger",
+                    ),
+                ),
+                AccordionContent.create(content, class_name="AccordionContent"),
+            ]
+
+        return super().create(
+            *children, value=value, **props, class_name="AccordionItem"
+        )
+
 
 class AccordionHeader(AccordionComponent):
     """An accordion component."""
@@ -540,47 +578,12 @@ to {
 """
 
 
-def accordion_item(header: Component, content: Component, **props) -> Component:
-    """Create an accordion item.
-
-    Args:
-        header: The header of the accordion item.
-        content: The content of the accordion item.
-        **props: Additional properties to apply to the accordion item.
-
-    Returns:
-        The accordion item.
-    """
-    # The item requires a value to toggle (use the header as the default value).
-    value = props.pop("value", str(header))
-
-    return AccordionItem.create(
-        AccordionHeader.create(
-            AccordionTrigger.create(
-                header,
-                Icon.create(
-                    tag="chevron_down",
-                    class_name="AccordionChevron",
-                ),
-                class_name="AccordionTrigger",
-            ),
-        ),
-        AccordionContent.create(
-            content,
-            class_name="AccordionContent",
-        ),
-        value=value,
-        **props,
-        class_name="AccordionItem",
-    )
-
-
 class Accordion(SimpleNamespace):
     """Accordion component."""
 
     content = staticmethod(AccordionContent.create)
     header = staticmethod(AccordionHeader.create)
-    item = staticmethod(accordion_item)
+    item = staticmethod(AccordionItem.create)
     root = staticmethod(AccordionRoot.create)
     trigger = staticmethod(AccordionTrigger.create)
 

@@ -8,9 +8,9 @@ from reflex.vars import Var, BaseVar, ComputedVar
 from reflex.event import EventChain, EventHandler, EventSpec
 from reflex.style import Style
 from types import SimpleNamespace
-from typing import Any, Dict, List, Literal
+from typing import Any, Dict, List, Literal, Optional
 from reflex.components.component import Component
-from reflex.components.core import match
+from reflex.components.core.match import Match
 from reflex.components.lucide.icon import Icon
 from reflex.components.radix.primitives.base import RadixPrimitiveComponent
 from reflex.components.radix.themes.base import LiteralAccentColor
@@ -51,7 +51,6 @@ class AccordionComponent(RadixPrimitiveComponent):
         id: Optional[Any] = None,
         class_name: Optional[Any] = None,
         autofocus: Optional[bool] = None,
-        _rename_props: Optional[Dict[str, str]] = None,
         custom_attrs: Optional[Dict[str, Union[Var, str]]] = None,
         on_blur: Optional[
             Union[EventHandler, EventSpec, list, function, BaseVar]
@@ -110,7 +109,6 @@ class AccordionComponent(RadixPrimitiveComponent):
             id: The id for the component.
             class_name: The class name for the component.
             autofocus: Whether the component should take the focus once the page is loaded
-            _rename_props: props to change the name of
             custom_attrs: custom attribute
             **props: The props of the component.
 
@@ -218,7 +216,6 @@ class AccordionRoot(AccordionComponent):
         id: Optional[Any] = None,
         class_name: Optional[Any] = None,
         autofocus: Optional[bool] = None,
-        _rename_props: Optional[Dict[str, str]] = None,
         custom_attrs: Optional[Dict[str, Union[Var, str]]] = None,
         on_blur: Optional[
             Union[EventHandler, EventSpec, list, function, BaseVar]
@@ -291,7 +288,6 @@ class AccordionRoot(AccordionComponent):
             id: The id for the component.
             class_name: The class name for the component.
             autofocus: Whether the component should take the focus once the page is loaded
-            _rename_props: props to change the name of
             custom_attrs: custom attribute
             **props: The properties of the component.
 
@@ -307,6 +303,8 @@ class AccordionItem(AccordionComponent):
     def create(  # type: ignore
         cls,
         *children,
+        header: Optional[Component | Var] = None,
+        content: Optional[Component | Var] = None,
         value: Optional[Union[Var[str], str]] = None,
         disabled: Optional[Union[Var[bool], bool]] = None,
         as_child: Optional[Union[Var[bool], bool]] = None,
@@ -315,7 +313,6 @@ class AccordionItem(AccordionComponent):
         id: Optional[Any] = None,
         class_name: Optional[Any] = None,
         autofocus: Optional[bool] = None,
-        _rename_props: Optional[Dict[str, str]] = None,
         custom_attrs: Optional[Dict[str, Union[Var, str]]] = None,
         on_blur: Optional[
             Union[EventHandler, EventSpec, list, function, BaseVar]
@@ -364,10 +361,12 @@ class AccordionItem(AccordionComponent):
         ] = None,
         **props
     ) -> "AccordionItem":
-        """Create the component.
+        """Create an accordion item.
 
         Args:
-            *children: The children of the component.
+            header: The header of the accordion item.
+            content: The content of the accordion item.
+            *children: The list of children to use if header and content are not provided.
             value: A unique identifier for the item.
             disabled: When true, prevents the user from interacting with the item.
             as_child: Change the default rendered element for the one passed as a child.
@@ -376,15 +375,11 @@ class AccordionItem(AccordionComponent):
             id: The id for the component.
             class_name: The class name for the component.
             autofocus: Whether the component should take the focus once the page is loaded
-            _rename_props: props to change the name of
             custom_attrs: custom attribute
-            **props: The props of the component.
+            **props: Additional properties to apply to the accordion item.
 
         Returns:
-            The component.
-
-        Raises:
-            TypeError: If an invalid child is passed.
+            The accordion item.
         """
         ...
 
@@ -400,7 +395,6 @@ class AccordionHeader(AccordionComponent):
         id: Optional[Any] = None,
         class_name: Optional[Any] = None,
         autofocus: Optional[bool] = None,
-        _rename_props: Optional[Dict[str, str]] = None,
         custom_attrs: Optional[Dict[str, Union[Var, str]]] = None,
         on_blur: Optional[
             Union[EventHandler, EventSpec, list, function, BaseVar]
@@ -459,7 +453,6 @@ class AccordionHeader(AccordionComponent):
             id: The id for the component.
             class_name: The class name for the component.
             autofocus: Whether the component should take the focus once the page is loaded
-            _rename_props: props to change the name of
             custom_attrs: custom attribute
             **props: The props of the component.
 
@@ -483,7 +476,6 @@ class AccordionTrigger(AccordionComponent):
         id: Optional[Any] = None,
         class_name: Optional[Any] = None,
         autofocus: Optional[bool] = None,
-        _rename_props: Optional[Dict[str, str]] = None,
         custom_attrs: Optional[Dict[str, Union[Var, str]]] = None,
         on_blur: Optional[
             Union[EventHandler, EventSpec, list, function, BaseVar]
@@ -542,7 +534,6 @@ class AccordionTrigger(AccordionComponent):
             id: The id for the component.
             class_name: The class name for the component.
             autofocus: Whether the component should take the focus once the page is loaded
-            _rename_props: props to change the name of
             custom_attrs: custom attribute
             **props: The props of the component.
 
@@ -566,7 +557,6 @@ class AccordionContent(AccordionComponent):
         id: Optional[Any] = None,
         class_name: Optional[Any] = None,
         autofocus: Optional[bool] = None,
-        _rename_props: Optional[Dict[str, str]] = None,
         custom_attrs: Optional[Dict[str, Union[Var, str]]] = None,
         on_blur: Optional[
             Union[EventHandler, EventSpec, list, function, BaseVar]
@@ -625,7 +615,6 @@ class AccordionContent(AccordionComponent):
             id: The id for the component.
             class_name: The class name for the component.
             autofocus: Whether the component should take the focus once the page is loaded
-            _rename_props: props to change the name of
             custom_attrs: custom attribute
             **props: The props of the component.
 
@@ -637,12 +626,10 @@ class AccordionContent(AccordionComponent):
         """
         ...
 
-def accordion_item(header: Component, content: Component, **props) -> Component: ...
-
 class Accordion(SimpleNamespace):
     content = staticmethod(AccordionContent.create)
     header = staticmethod(AccordionHeader.create)
-    item = staticmethod(accordion_item)
+    item = staticmethod(AccordionItem.create)
     root = staticmethod(AccordionRoot.create)
     trigger = staticmethod(AccordionTrigger.create)
 

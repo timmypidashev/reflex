@@ -10,6 +10,7 @@ from reflex.style import Style
 from types import SimpleNamespace
 from typing import Optional
 from reflex.components.component import Component
+from reflex.components.radix.primitives.accordion import DEFAULT_ANIMATION_DURATION
 from reflex.components.radix.primitives.base import RadixPrimitiveComponentWithClassName
 from reflex.style import Style
 from reflex.vars import Var
@@ -26,7 +27,6 @@ class ProgressComponent(RadixPrimitiveComponentWithClassName):
         id: Optional[Any] = None,
         class_name: Optional[Any] = None,
         autofocus: Optional[bool] = None,
-        _rename_props: Optional[Dict[str, str]] = None,
         custom_attrs: Optional[Dict[str, Union[Var, str]]] = None,
         on_blur: Optional[
             Union[EventHandler, EventSpec, list, function, BaseVar]
@@ -85,7 +85,6 @@ class ProgressComponent(RadixPrimitiveComponentWithClassName):
             id: The id for the component.
             class_name: The class name for the component.
             autofocus: Whether the component should take the focus once the page is loaded
-            _rename_props: props to change the name of
             custom_attrs: custom attribute
             **props: The props of the component.
 
@@ -111,7 +110,6 @@ class ProgressRoot(ProgressComponent):
         id: Optional[Any] = None,
         class_name: Optional[Any] = None,
         autofocus: Optional[bool] = None,
-        _rename_props: Optional[Dict[str, str]] = None,
         custom_attrs: Optional[Dict[str, Union[Var, str]]] = None,
         on_blur: Optional[
             Union[EventHandler, EventSpec, list, function, BaseVar]
@@ -172,7 +170,6 @@ class ProgressRoot(ProgressComponent):
             id: The id for the component.
             class_name: The class name for the component.
             autofocus: Whether the component should take the focus once the page is loaded
-            _rename_props: props to change the name of
             custom_attrs: custom attribute
             **props: The props of the component.
 
@@ -191,13 +188,13 @@ class ProgressIndicator(ProgressComponent):
         cls,
         *children,
         value: Optional[Union[Var[Optional[int]], Optional[int]]] = None,
+        max: Optional[Union[Var[Optional[int]], Optional[int]]] = None,
         as_child: Optional[Union[Var[bool], bool]] = None,
         style: Optional[Style] = None,
         key: Optional[Any] = None,
         id: Optional[Any] = None,
         class_name: Optional[Any] = None,
         autofocus: Optional[bool] = None,
-        _rename_props: Optional[Dict[str, str]] = None,
         custom_attrs: Optional[Dict[str, Union[Var, str]]] = None,
         on_blur: Optional[
             Union[EventHandler, EventSpec, list, function, BaseVar]
@@ -251,13 +248,13 @@ class ProgressIndicator(ProgressComponent):
         Args:
             *children: The children of the component.
             value: The current progress value.
+            max: The maximum progress value.
             as_child: Change the default rendered element for the one passed as a child.
             style: The style of the component.
             key: A unique key for the component.
             id: The id for the component.
             class_name: The class name for the component.
             autofocus: Whether the component should take the focus once the page is loaded
-            _rename_props: props to change the name of
             custom_attrs: custom attribute
             **props: The props of the component.
 
@@ -274,6 +271,6 @@ class Progress(SimpleNamespace):
     indicator = staticmethod(ProgressIndicator.create)
 
     @staticmethod
-    def __call__(**props) -> Component: ...
+    def __call__(width: Optional[str] = "100%", **props) -> Component: ...
 
 progress = Progress()

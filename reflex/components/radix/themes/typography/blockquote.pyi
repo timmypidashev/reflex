@@ -18,7 +18,18 @@ class Blockquote(el.Blockquote, RadixThemesComponent):
     def create(  # type: ignore
         cls,
         *children,
-        color: Optional[Union[Var[str], str]] = None,
+        size: Optional[
+            Union[
+                Var[Literal["1", "2", "3", "4", "5", "6", "7", "8", "9"]],
+                Literal["1", "2", "3", "4", "5", "6", "7", "8", "9"],
+            ]
+        ] = None,
+        weight: Optional[
+            Union[
+                Var[Literal["light", "regular", "medium", "bold"]],
+                Literal["light", "regular", "medium", "bold"],
+            ]
+        ] = None,
         color_scheme: Optional[
             Union[
                 Var[
@@ -81,18 +92,6 @@ class Blockquote(el.Blockquote, RadixThemesComponent):
                 ],
             ]
         ] = None,
-        size: Optional[
-            Union[
-                Var[Literal["1", "2", "3", "4", "5", "6", "7", "8", "9"]],
-                Literal["1", "2", "3", "4", "5", "6", "7", "8", "9"],
-            ]
-        ] = None,
-        weight: Optional[
-            Union[
-                Var[Literal["light", "regular", "medium", "bold"]],
-                Literal["light", "regular", "medium", "bold"],
-            ]
-        ] = None,
         high_contrast: Optional[Union[Var[bool], bool]] = None,
         cite: Optional[Union[Var[Union[str, int, bool]], Union[str, int, bool]]] = None,
         access_key: Optional[
@@ -140,7 +139,6 @@ class Blockquote(el.Blockquote, RadixThemesComponent):
         id: Optional[Any] = None,
         class_name: Optional[Any] = None,
         autofocus: Optional[bool] = None,
-        _rename_props: Optional[Dict[str, str]] = None,
         custom_attrs: Optional[Dict[str, Union[Var, str]]] = None,
         on_blur: Optional[
             Union[EventHandler, EventSpec, list, function, BaseVar]
@@ -196,10 +194,9 @@ class Blockquote(el.Blockquote, RadixThemesComponent):
 
         Args:
             *children: Child components.
-            color: map to CSS default color property.
-            color_scheme: map to radix color property.
             size: Text size: "1" - "9"
             weight: Thickness of text: "light" | "regular" | "medium" | "bold"
+            color_scheme: Overrides the accent color inherited from the Theme.
             high_contrast: Whether to render the text with higher contrast color
             cite: Define the title of a work.
             access_key:  Provides a hint for generating a keyboard shortcut for the current element.
@@ -223,7 +220,6 @@ class Blockquote(el.Blockquote, RadixThemesComponent):
             id: The id for the component.
             class_name: The class name for the component.
             autofocus: Whether the component should take the focus once the page is loaded
-            _rename_props: props to change the name of
             custom_attrs: custom attribute
             **props: Component properties.
 
